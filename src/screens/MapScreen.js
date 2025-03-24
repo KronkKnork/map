@@ -1145,11 +1145,12 @@ const MapScreen = () => {
               Alert.alert("Навигация", "Функция навигации будет доступна в следующей версии приложения");
             }}
             onRouteTypeChange={handleRouteTypeChange}
-            originName={isReverseRoute ? (selectedPlaceInfo?.name || "Выбранное место") : "Ваше местоположение"}
-            destinationName={isReverseRoute ? "Ваше местоположение" : (selectedPlaceInfo?.name || "Выбранное место")}
+            originName={isReverseRoute ? (selectedPlaceInfo?.name || "Выбранное место") : "Моё местоположение"}
+            destinationName={isReverseRoute ? "Моё местоположение" : (selectedPlaceInfo?.name || "Выбранное место")}
             activeRouteType={getTransportTypeFromMode(routeMode)}
             allRoutes={allRoutes}
             routesLoading={routesLoading}
+            onSwapDirection={() => setIsReverseRoute(!isReverseRoute)}
           />
         )}
       </View>
