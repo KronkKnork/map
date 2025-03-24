@@ -1,65 +1,71 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Pressable } from 'react-native';
 import { theme } from '../../theme';
 
 /**
- * Компонент для отображения результатов поиска с улучшенной обработкой нажатий
- * 
- * @param {Array} results - Массив результатов поиска
- * @param {Function} onSelectResult - Колбэк при выборе результата
- * @param {Boolean} isVisible - Флаг видимости списка результатов
+ * Компонент для отображения результатов поиска
  */
 const SearchResults = ({ results, onSelectResult, isVisible }) => {
-  // Если компонент скрыт или нет результатов, не рендерим
-  if (!isVisible || !results || !results.length) {
+  if (!isVisible || !results || results.length === 0) {
     return null;
   }
-  
-  // Безопасная обработка выбора результата
-  const handleSelectResult = (result, index) => {
-    // Проверка на валидность результата
+
+  // Функция-обработчик нажатия на результат
+  const handlePress = (result, index) => {
+    console.log(`Нажатие на результат #${index}: ${result.name}`);
+    
+    // Базовая проверка результата
     if (!result || !result.latitude || !result.longitude) {
-      console.error('Невозможно выбрать результат без координат:', result);
-      Alert.alert('Ошибка', 'Не удалось получить координаты для этого места. Попробуйте другой вариант.');
+      console.error('Результат без координат:', result);
       return;
     }
     
-    console.log(`SearchResults: выбран результат ${index}:`, result.name);
+    // Убедимся, что координаты - числа
+    const cleanResult = {
+      ...result,
+      latitude: typeof result.latitude === 'string' ? parseFloat(result.latitude) : result.latitude,
+      longitude: typeof result.longitude === 'string' ? parseFloat(result.longitude) : result.longitude
+    };
     
-    // Передаем результат в обработчик, предоставленный родителем
-    if (typeof onSelectResult === 'function') {
-      onSelectResult(result);
-    }
+    // Вызов родительского обработчика
+    onSelectResult(cleanResult);
   };
-  
+
   return (
     <View style={styles.container}>
-      <ScrollView style={styles.scrollView}>
-        {results.map((result, index) => (
-          <TouchableOpacity
-            key={result.id || index}
-            style={styles.resultItem}
-            activeOpacity={0.6}
-            onPress={() => handleSelectResult(result, index)}
+      <ScrollView 
+        style={styles.scrollView}
+        keyboardShouldPersistTaps="always"
+        contentContainerStyle={styles.scrollContent}
+      >
+        {results.map((item, index) => (
+          <Pressable
+            key={item.id || `result-${index}`}
+            style={({ pressed }) => [
+              styles.resultItem,
+              pressed && styles.resultItemPressed
+            ]}
+            onPress={() => handlePress(item, index)}
+            android_ripple={{ color: '#eee' }}
           >
             <View style={styles.resultContent}>
               <Text style={styles.resultName} numberOfLines={1}>
-                {result.name || "Без названия"}
+                {item.name || "Без названия"}
               </Text>
-              {result.address && (
+              {item.address && (
                 <Text style={styles.resultAddress} numberOfLines={1}>
-                  {result.address}
+                  {item.address}
                 </Text>
               )}
-              {result.distance !== undefined && (
+              {item.distance !== undefined && (
                 <Text style={styles.resultDistance}>
-                  {result.distance < 1 
-                    ? `${Math.round(result.distance * 1000)} м` 
-                    : `${result.distance.toFixed(1)} км`}
+                  {item.distance < 1 
+                    ? `${Math.round(item.distance * 1000)} м` 
+                    : `${item.distance.toFixed(1)} км`}
                 </Text>
               )}
             </View>
-          </TouchableOpacity>
+          </Pressable>
         ))}
       </ScrollView>
     </View>
@@ -80,15 +86,21 @@ const styles = StyleSheet.create({
     shadowRadius: 3.84,
     elevation: 5,
     maxHeight: 300,
-    zIndex: 9,
+    zIndex: 99,
   },
   scrollView: {
     maxHeight: 300,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   resultItem: {
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
+  },
+  resultItemPressed: {
+    backgroundColor: '#f0f0f0',
   },
   resultContent: {
     flexDirection: 'column',
@@ -112,4 +124,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default React.memo(SearchResults); 
+export default SearchResults; 

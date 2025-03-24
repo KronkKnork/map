@@ -279,86 +279,87 @@ const MapScreen = () => {
 
   // Обработчик выбора результата из поиска
   const handleSelectSearchResult = (result) => {
-    console.log('Выбор результата поиска:', JSON.stringify(result));
+    console.log('🔍 ВЫЗВАН handleSelectSearchResult с результатом:', JSON.stringify(result));
     
     // Проверка на валидность результата
     if (!result) {
-      console.warn('Пустой результат поиска');
+      console.warn('🚫 Пустой результат поиска');
       return;
     }
     
-    // Очищаем интерфейс поиска сразу
-    setSearchText('');
-    setSearchResults([]);
-    setIsSearchFocused(false);
-    Keyboard.dismiss();
-    
-    // Получаем координаты
-    const lat = typeof result.latitude === 'string' ? parseFloat(result.latitude) : result.latitude;
-    const lng = typeof result.longitude === 'string' ? parseFloat(result.longitude) : result.longitude;
-    
-    // Проверяем валидность координат
-    if (isNaN(lat) || isNaN(lng)) {
-      console.error('Некорректные координаты в результате:', result);
-      Alert.alert('Ошибка', 'Не удалось получить координаты выбранного места');
-      return;
-    }
-    
-    // Создаем объект с координатами
-    const coordinate = {
-      latitude: lat,
-      longitude: lng
-    };
-    
-    console.log('Установка маркера по координатам:', coordinate);
-    
-    // Сброс маршрута если он был активен
-    if (isRouting) {
-      setIsRouting(false);
-      setRouteDetails(null);
-      setAllRoutes({
-        DRIVING: null,
-        WALKING: null,
-        BICYCLING: null,
-        TRANSIT: null
-      });
-    }
-    
-    // Создаем информацию о выбранном месте
-    const placeInfo = {
-      name: result.name || 'Выбранное место',
-      address: result.address || `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
-      distance: result.distance
-    };
-    
-    // Определяем новый регион для карты
-    const newRegion = {
-      latitude: lat,
-      longitude: lng,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01
-    };
-    
-    // 1. Сначала устанавливаем регион напрямую
-    setRegion(newRegion);
-    
-    // 2. Затем устанавливаем выбранное место для маркера
-    setSelectedLocation(coordinate);
-    setSelectedPlaceInfo(placeInfo);
-    
-    // 3. Затем используем анимацию с небольшой задержкой
-    setTimeout(() => {
-      if (mapRef.current) {
-        try {
-          console.log('Анимация карты к результату поиска:', newRegion);
-          mapRef.current.animateToRegion(newRegion, 500);
-        } catch (e) {
-          console.error('Ошибка анимации карты:', e);
-        }
-      } else {
-        console.warn('mapRef недоступен для анимации');
+    try {
+      // Получаем координаты из результата
+      const lat = typeof result.latitude === 'string' ? parseFloat(result.latitude) : result.latitude;
+      const lng = typeof result.longitude === 'string' ? parseFloat(result.longitude) : result.longitude;
+      
+      // Проверяем валидность координат
+      if (isNaN(lat) || isNaN(lng)) {
+        console.error('🚫 Некорректные координаты в результате:', JSON.stringify(result));
+        return;
       }
-    }, 200);
+      
+      // Создаем объект с координатами
+      const coordinate = {
+        latitude: lat,
+        longitude: lng
+      };
+      
+      console.log('📍 Установка маркера по координатам:', coordinate);
+      
+      // Скрываем клавиатуру и сбрасываем результаты поиска немедленно
+      Keyboard.dismiss();
+      setSearchText('');
+      setSearchResults([]);
+      setIsSearchFocused(false);
+      
+      // Сброс маршрута если он был активен
+      if (isRouting) {
+        setIsRouting(false);
+        setRouteDetails(null);
+        setAllRoutes({
+          DRIVING: null,
+          WALKING: null,
+          BICYCLING: null,
+          TRANSIT: null
+        });
+      }
+      
+      // Создаем информацию о выбранном месте
+      const placeInfo = {
+        name: result.name || 'Выбранное место',
+        address: result.address || `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+        distance: result.distance
+      };
+      
+      // 1. Устанавливаем выбранное место и информацию о нем
+      setSelectedLocation(coordinate);
+      setSelectedPlaceInfo(placeInfo);
+      
+      // 2. Определяем новый регион и устанавливаем его сразу
+      const newRegion = {
+        latitude: lat,
+        longitude: lng,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01
+      };
+      
+      // Устанавливаем регион напрямую
+      setRegion(newRegion);
+      
+      // 3. ВАЖНО: используем setTimeout с mapRef для перемещения карты
+      setTimeout(() => {
+        if (mapRef.current) {
+          console.log('🗺️ Анимация карты к координатам:', coordinate);
+          mapRef.current.animateToRegion(newRegion, 300);
+        } else {
+          console.warn('⚠️ mapRef недоступен для анимации');
+        }
+      }, 300);
+      
+      console.log('✅ Выбор результата поиска завершен успешно');
+    } catch (error) {
+      console.error('🔴 Ошибка в handleSelectSearchResult:', error);
+    }
   };
 
   // Функция расчета расстояния по формуле Гаверсинуса
