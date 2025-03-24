@@ -5,6 +5,10 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import MapViewComponent from '../components/map/MapView';
 import RouteBottomPanel from '../components/route/RouteBottomPanel';
+import SearchBar from '../components/search/SearchBar';
+import SearchResults from '../components/search/SearchResults';
+import SelectedPlaceMarker from '../components/map/SelectedPlaceMarker';
+import RouteMarkers from '../components/map/RouteMarkers';
 import { theme } from '../theme';
 import { searchPlaces, reverseGeocode, fetchRouteDirections } from '../services/api';
 import { Marker } from 'react-native-maps';
@@ -157,6 +161,14 @@ const MapScreen = () => {
       setSearchResults([]);
       setRouteDetails(null);
       
+      // Перемещаем карту к выбранной точке
+      mapRef.current?.animateToRegion({
+        latitude: newLocation.latitude,
+        longitude: newLocation.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01
+      }, 300);
+      
       // Получаем информацию о месте по координатам
       const placeInfo = await reverseGeocode(latitude, longitude)
         .catch(error => {
@@ -200,8 +212,13 @@ const MapScreen = () => {
     
     console.log(`Выполняю поиск для запроса: "${searchText.trim()}"`);
     
-    // Запрашиваем места по запросу, учитывая что функция searchPlaces принимает только два параметра
-    searchPlaces(searchText, 20)
+    // Запрашиваем места по запросу, передавая координаты пользователя если они доступны
+    const userCoords = location?.coords ? {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude
+    } : null;
+    
+    searchPlaces(searchText, 20, userCoords)
       .then(results => {
         if (!results || !Array.isArray(results)) {
           console.error('Некорректный формат результатов поиска:', results);
@@ -211,38 +228,8 @@ const MapScreen = () => {
         
         console.log(`Получено ${results.length} результатов поиска`);
         
-        // Рассчитываем расстояние для каждого результата, если доступно местоположение
-        const resultsWithDistance = location?.coords
-          ? results.map(result => {
-              // Проверяем, что у результата есть корректные координаты
-              if (result.latitude !== undefined && 
-                  result.longitude !== undefined && 
-                  typeof result.latitude === 'number' && 
-                  typeof result.longitude === 'number') {
-                
-                const distance = calculateDistance(
-                  location.coords.latitude, 
-                  location.coords.longitude,
-                  result.latitude, 
-                  result.longitude
-                );
-                
-                return { ...result, distance };
-              }
-              return result;
-            })
-          : results;
-        
-        // Сортируем результаты по расстоянию, если оно доступно
-        const sortedResults = location?.coords
-          ? resultsWithDistance.sort((a, b) => {
-              if (!a.distance) return 1;
-              if (!b.distance) return -1;
-              return a.distance - b.distance;
-            })
-          : resultsWithDistance;
-        
-        setSearchResults(sortedResults);
+        // Устанавливаем результаты (они уже отсортированы по расстоянию в API)
+        setSearchResults(results);
       })
       .catch(error => {
         console.error('Ошибка при поиске мест:', error);
@@ -393,11 +380,13 @@ const MapScreen = () => {
   const handleRouteTypeChange = (mode) => {
     console.log(`MapScreen: изменение типа маршрута на ${mode}`);
     
+    // Сразу устанавливаем режим маршрута для обновления UI
+    setRouteMode(mode);
+    
     // Если у нас уже есть данные для этого типа с координатами, просто переключаемся
     if (allRoutes[mode] && allRoutes[mode].coordinates && allRoutes[mode].coordinates.length > 0) {
       console.log(`MapScreen: у нас уже есть полные данные для типа ${mode}, устанавливаем их`);
       setRouteDetails(allRoutes[mode]);
-      setRouteMode(mode);
     } else {
       // Если у нас нет координат маршрута, запрашиваем их сейчас
       console.log(`MapScreen: нет полных данных для типа ${mode}, запрашиваем маршрут`);
@@ -408,9 +397,6 @@ const MapScreen = () => {
         ...prev,
         [mode]: true
       }));
-      
-      // Устанавливаем режим маршрута (это запустит построение в компоненте RouteDirections)
-      setRouteMode(mode);
     }
   };
 
@@ -609,106 +595,70 @@ const MapScreen = () => {
           } : null}
           onRouteReady={handleRouteReady}
         >
-          {/* Маркер выбранной локации - проверяем, что координаты валидны */}
-          {selectedLocation && 
-           typeof selectedLocation === 'object' && 
-           typeof selectedLocation.latitude === 'number' && 
-           typeof selectedLocation.longitude === 'number' && 
-           !isNaN(selectedLocation.latitude) && 
-           !isNaN(selectedLocation.longitude) && (
-            <Marker
-              coordinate={selectedLocation}
-              title={selectedPlaceInfo?.name || "Выбранное место"}
-              description={selectedPlaceInfo?.address}
-              pinColor="red"
-            />
-          )}
+          {/* Маркер выбранного места (не в режиме маршрута) */}
+          <SelectedPlaceMarker 
+            location={selectedLocation} 
+            placeInfo={selectedPlaceInfo} 
+          />
+          
+          {/* Маркеры маршрута (начало и конец) */}
+          <RouteMarkers 
+            origin={isReverseRoute ? selectedLocation : (location?.coords ? {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            } : null)}
+            destination={isReverseRoute ? (location?.coords ? {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            } : null) : selectedLocation}
+            originInfo={isReverseRoute ? selectedPlaceInfo : { name: "Ваше местоположение" }}
+            destinationInfo={isReverseRoute ? { name: "Ваше местоположение" } : selectedPlaceInfo}
+            isRouting={isRouting}
+          />
         </MapViewComponent>
 
-        {/* Поле поиска */}
-        <View style={styles.searchBarContainer}>
-          <TextInput
-            ref={searchInputRef}
-            style={styles.searchInput}
-            placeholder="Поиск мест и адресов"
-            placeholderTextColor={theme.colors.placeholder}
-            value={searchText}
-            onChangeText={(text) => {
-              setSearchText(text);
-              // Если строка поиска пуста, очищаем результаты
-              if (!text.trim()) {
-                setSearchResults([]);
-                if (searchTimerRef.current) {
-                  clearTimeout(searchTimerRef.current);
-                  searchTimerRef.current = null;
-                }
-              } 
-              // Если длина строки поиска достаточна, автоматически выполняем поиск
-              else if (text.trim().length >= 3) {
-                // Отменяем предыдущий таймер, если он есть
-                if (searchTimerRef.current) {
-                  clearTimeout(searchTimerRef.current);
-                }
-                // Устанавливаем новый таймер (дебаунс 500мс)
-                searchTimerRef.current = setTimeout(() => {
-                  handleSearch();
-                  searchTimerRef.current = null;
-                }, 500);
+        {/* Строка поиска */}
+        <SearchBar 
+          value={searchText}
+          onChangeText={(text) => {
+            setSearchText(text);
+            // Если строка поиска пуста, очищаем результаты
+            if (!text.trim()) {
+              setSearchResults([]);
+              if (searchTimerRef.current) {
+                clearTimeout(searchTimerRef.current);
+                searchTimerRef.current = null;
               }
-            }}
-            onFocus={() => setIsSearchFocused(true)}
-            onBlur={() => setTimeout(() => setIsSearchFocused(false), 100)}
-            onSubmitEditing={handleSearch}
-          />
-          <TouchableOpacity
-            style={styles.searchButton}
-            onPress={() => {
-              if (searchText.trim() === '') {
-                setSearchResults([]);
-                Keyboard.dismiss();
-              } else {
+            } 
+            // Если длина строки поиска достаточна, автоматически выполняем поиск
+            else if (text.trim().length >= 3) {
+              // Отменяем предыдущий таймер, если он есть
+              if (searchTimerRef.current) {
+                clearTimeout(searchTimerRef.current);
+              }
+              // Устанавливаем новый таймер (дебаунс 500мс)
+              searchTimerRef.current = setTimeout(() => {
                 handleSearch();
-              }
-            }}
-          >
-            <Ionicons
-              name={searchText ? 'close' : 'search'}
-              size={24}
-              color={theme.colors.primary}
-            />
-          </TouchableOpacity>
-        </View>
+                searchTimerRef.current = null;
+              }, 500);
+            }
+          }}
+          onSubmit={handleSearch}
+          onFocus={() => setIsSearchFocused(true)}
+          onBlur={() => setTimeout(() => setIsSearchFocused(false), 100)}
+          onClear={() => {
+            setSearchText('');
+            setSearchResults([]);
+            Keyboard.dismiss();
+          }}
+        />
 
         {/* Результаты поиска */}
-        {isSearchFocused && searchResults.length > 0 && (
-          <View style={styles.searchResultsContainer}>
-            {searchResults.map((result, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.searchResultItem}
-                onPress={() => handleSelectSearchResult(result)}
-              >
-                <View style={styles.searchResultContent}>
-                  <Text style={styles.searchResultName}>
-                    {result.name || "Без названия"}
-                  </Text>
-                  {result.address && (
-                    <Text style={styles.searchResultAddress} numberOfLines={1}>
-                      {result.address}
-                    </Text>
-                  )}
-                  {result.distance && (
-                    <Text style={styles.searchResultDistance}>
-                      {result.distance < 1 
-                        ? `${Math.round(result.distance * 1000)} м` 
-                        : `${result.distance.toFixed(1)} км`}
-                    </Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
+        <SearchResults 
+          results={searchResults}
+          onSelectResult={handleSelectSearchResult}
+          isVisible={isSearchFocused && searchResults.length > 0}
+        />
 
         {/* Кнопка центрирования на текущем местоположении */}
         <TouchableOpacity
@@ -1009,6 +959,28 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: theme.colors.primary,
     textAlign: 'right',
+  },
+  startMarker: {
+    position: 'absolute',
+    top: -20,
+    left: -10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'green',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  endMarker: {
+    position: 'absolute',
+    top: -20,
+    right: -10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'red',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 

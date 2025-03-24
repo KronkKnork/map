@@ -4,23 +4,34 @@ import axios from 'axios';
 // Базовый URL для Nominatim API (OpenStreetMap)
 const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
 
-// Поиск мест по запросу
-export const searchPlaces = async (query, limit = 10) => {
+// Поиск мест по запросу с учетом местоположения пользователя
+export const searchPlaces = async (query, limit = 10, userLocation = null) => {
   try {
-    console.log(`Отправляем запрос поиска: ${query} с лимитом ${limit}`);
+    console.log(`Отправляем запрос поиска: ${query} с лимитом ${limit}${userLocation ? ' и учетом местоположения' : ''}`);
     
     // Добавляем таймаут для обеспечения завершения запроса
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 секунд таймаут
     
+    // Базовые параметры запроса
+    const params = {
+      q: query,
+      format: 'json',
+      addressdetails: 1,
+      limit: limit,
+      'accept-language': 'ru,en', // Предпочитаем русский язык в результатах
+    };
+    
+    // Если передано местоположение пользователя, добавляем параметры для поиска с учетом этого
+    if (userLocation && userLocation.latitude && userLocation.longitude) {
+      params.lat = userLocation.latitude;
+      params.lon = userLocation.longitude;
+      // Задаем небольшой радиус для начала поиска локально
+      params.zoom = 15; // 15 - город, 18 - район, 10 - регион
+    }
+    
     const response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
-      params: {
-        q: query,
-        format: 'json',
-        addressdetails: 1,
-        limit: limit,
-        'accept-language': 'ru,en', // Предпочитаем русский язык в результатах
-      },
+      params,
       headers: {
         'User-Agent': 'MapEase-App/1.0',
         'Accept': 'application/json',
@@ -33,13 +44,14 @@ export const searchPlaces = async (query, limit = 10) => {
     
     console.log(`Получено ${response.data.length} результатов поиска`);
     
-    // Если нет результатов, попробуем другой запрос с расширенными параметрами
-    if (response.data.length === 0) {
-      return await searchByNameWithFallback(query, limit);
+    // Если нет результатов или их мало, попробуем запрос без учета местоположения
+    if (response.data.length < 3 && userLocation) {
+      console.log('Мало результатов, пробуем запрос без учета местоположения');
+      return await searchByNameWithFallback(query, limit, userLocation);
     }
 
     // Преобразуем данные в нужный формат
-    return response.data.map((item) => ({
+    const formattedResults = response.data.map((item) => ({
       id: item.place_id,
       name: item.display_name.split(',')[0],
       address: item.display_name,
@@ -47,11 +59,34 @@ export const searchPlaces = async (query, limit = 10) => {
       longitude: parseFloat(item.lon),
       type: getTypeFromCategory(item.class),
     }));
+    
+    // Если есть местоположение пользователя, рассчитываем расстояние и сортируем
+    if (userLocation && userLocation.latitude && userLocation.longitude) {
+      formattedResults.forEach(result => {
+        if (result.latitude && result.longitude) {
+          result.distance = calculateDistance(
+            userLocation.latitude,
+            userLocation.longitude,
+            result.latitude,
+            result.longitude
+          );
+        }
+      });
+      
+      // Сортируем результаты по расстоянию
+      formattedResults.sort((a, b) => {
+        if (!a.distance) return 1;
+        if (!b.distance) return -1;
+        return a.distance - b.distance;
+      });
+    }
+    
+    return formattedResults;
   } catch (error) {
     // Если первый запрос завершился с ошибкой, попробуем альтернативный подход
     if (error.code === 'ECONNABORTED' || error.name === 'AbortError') {
       console.error('Таймаут запроса поиска, пробуем резервный метод:', error);
-      return await searchByNameWithFallback(query, limit);
+      return await searchByNameWithFallback(query, limit, userLocation);
     }
     
     console.error('Ошибка при поиске мест:', error);
@@ -60,20 +95,31 @@ export const searchPlaces = async (query, limit = 10) => {
 };
 
 // Резервный метод поиска
-const searchByNameWithFallback = async (query, limit = 10) => {
+const searchByNameWithFallback = async (query, limit = 10, userLocation = null) => {
   try {
     console.log(`Пробуем резервный метод поиска для: ${query}`);
     
+    // Базовые параметры запроса
+    const params = {
+      q: query,
+      format: 'json',
+      'accept-language': 'ru,en',
+      addressdetails: 1,
+      limit: Math.min(limit * 2, 50), // Увеличиваем лимит для резервного запроса
+      namedetails: 1,
+      extratags: 1
+    };
+    
+    // Если передано местоположение, используем его для более релевантного поиска
+    if (userLocation && userLocation.latitude && userLocation.longitude) {
+      params.lat = userLocation.latitude;
+      params.lon = userLocation.longitude;
+      // Увеличиваем радиус поиска
+      params.zoom = 10; // региональный масштаб
+    }
+    
     const response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
-      params: {
-        q: query,
-        format: 'json',
-        'accept-language': 'ru,en',
-        addressdetails: 1,
-        limit: Math.min(limit * 2, 50), // Увеличиваем лимит для резервного запроса
-        namedetails: 1,
-        extratags: 1
-      },
+      params,
       headers: {
         'User-Agent': 'MapEase-App/1.0',
         'Accept': 'application/json',
@@ -88,7 +134,7 @@ const searchByNameWithFallback = async (query, limit = 10) => {
       return [];
     }
     
-    return response.data.map((item) => ({
+    const formattedResults = response.data.map((item) => ({
       id: item.place_id,
       name: item.namedetails?.name || item.display_name.split(',')[0],
       address: item.display_name,
@@ -96,10 +142,52 @@ const searchByNameWithFallback = async (query, limit = 10) => {
       longitude: parseFloat(item.lon),
       type: getTypeFromCategory(item.class),
     }));
+    
+    // Если есть местоположение пользователя, рассчитываем расстояние и сортируем
+    if (userLocation && userLocation.latitude && userLocation.longitude) {
+      formattedResults.forEach(result => {
+        if (result.latitude && result.longitude) {
+          result.distance = calculateDistance(
+            userLocation.latitude,
+            userLocation.longitude,
+            result.latitude,
+            result.longitude
+          );
+        }
+      });
+      
+      // Сортируем результаты по расстоянию
+      formattedResults.sort((a, b) => {
+        if (!a.distance) return 1;
+        if (!b.distance) return -1;
+        return a.distance - b.distance;
+      });
+    }
+    
+    return formattedResults;
   } catch (error) {
     console.error('Ошибка при резервном поиске:', error);
     return []; // Возвращаем пустой массив вместо ошибки
   }
+};
+
+// Функция расчета расстояния по формуле Гаверсинуса
+const calculateDistance = (lat1, lon1, lat2, lon2) => {
+  const R = 6371; // Радиус Земли в км
+  const dLat = deg2rad(lat2 - lat1);
+  const dLon = deg2rad(lon2 - lon1);
+  const a = 
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
+    Math.sin(dLon / 2) * Math.sin(dLon / 2); 
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)); 
+  const distance = R * c; // Расстояние в км
+  return distance;
+};
+
+// Перевод градусов в радианы
+const deg2rad = (deg) => {
+  return deg * (Math.PI / 180);
 };
 
 // Определение типа объекта по категории
@@ -421,11 +509,6 @@ const calculateDirectDistance = (lat1, lon1, lat2, lon2) => {
     Math.sin(dLon/2) * Math.sin(dLon/2); 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
   return R * c; // Расстояние в километрах
-};
-
-// Конвертация градусов в радианы
-const deg2rad = (deg) => {
-  return deg * (Math.PI/180);
 };
 
 // Экспортируем все API функции
