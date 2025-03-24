@@ -24,6 +24,8 @@ import RouteTypeTabs from './RouteTypeTabs';
  * @param {String} originName - Название начальной точки
  * @param {String} destinationName - Название конечной точки
  * @param {String} activeRouteType - Активный тип маршрута
+ * @param {Object} allRoutes - Все доступные маршруты по типам
+ * @param {Object} routesLoading - Состояние загрузки маршрутов по типам
  */
 const RouteBottomPanel = ({ 
   route,
@@ -33,7 +35,9 @@ const RouteBottomPanel = ({
   onRouteTypeChange,
   originName = "Исходная точка",
   destinationName = "Конечная точка",
-  activeRouteType = 'car'
+  activeRouteType = 'car',
+  allRoutes = {},
+  routesLoading = {}
 }) => {
   const [expanded, setExpanded] = useState(false);
   
@@ -50,306 +54,208 @@ const RouteBottomPanel = ({
     }
   }, [routeInfo, activeRouteType]);
   
-  // Данные о времени в пути для разных типов транспорта
-  const routeTimes = useMemo(() => {
-    if (!routeInfo || !routeInfo.distance) {
-      // Значения по умолчанию, если нет данных о маршруте
-      console.log('RouteBottomPanel: нет данных о маршруте, устанавливаю значения по умолчанию');
-      return {
-        car: 0,
-        walk: 0,
-        bicycle: 0, 
-        public_transport: 0
-      };
+  // Преобразование типа маршрута API в формат для вкладок
+  const getTabTypeFromApiMode = (apiMode) => {
+    switch (apiMode) {
+      case 'WALKING':
+        return 'walk';
+      case 'BICYCLING':
+        return 'bicycle';
+      case 'TRANSIT':
+        return 'public_transport';
+      case 'DRIVING':
+      default:
+        return 'car';
     }
-    
-    // Получаем данные расстояния и длительности из routeInfo
-    const distance = routeInfo.distance || 0;
-    const baseDuration = routeInfo.duration || 0;
-    
-    console.log('RouteBottomPanel рассчитывает время для маршрута:', {
-      distance,
-      duration: baseDuration,
-      isApproximate: routeInfo.isApproximate,
-      activeRouteType
-    });
-    
-    // Рассчитываем время для автомобиля
-    // Если значение слишком маленькое, берем минимум 5 минут
-    const carTime = Math.max(5, Math.round(baseDuration));
-    
-    // Пешком - средняя скорость 5 км/ч
-    const walkTime = Math.max(1, Math.round((distance / 5) * 60));
-    
-    // Велосипед - средняя скорость 15 км/ч
-    const bicycleTime = Math.max(2, Math.round((distance / 15) * 60));
-    
-    // Общественный транспорт - средняя скорость 25 км/ч + время ожидания
-    const ptTime = Math.max(5, Math.round((distance / 25) * 60 + 10)); // +10 минут на ожидание
-    
-    const result = {
-      car: carTime,
-      walk: walkTime,
-      bicycle: bicycleTime,
-      public_transport: ptTime
-    };
-    
-    console.log('RouteBottomPanel рассчитал времена:', result);
-    
-    return result;
-  }, [routeInfo]);
+  };
   
-  // Преобразуем время из минут в формат часы:минуты для более удобного отображения
+  // Преобразование типа вкладки в режим API
+  const getApiModeFromTabType = (tabType) => {
+    switch (tabType) {
+      case 'walk':
+        return 'WALKING';
+      case 'bicycle':
+        return 'BICYCLING';
+      case 'public_transport':
+      case 'subway':
+        return 'TRANSIT';
+      case 'car':
+      default:
+        return 'DRIVING';
+    }
+  };
+  
+  // Получение информации о загрузке для типа вкладки
+  const isTabLoading = (tabType) => {
+    const apiMode = getApiModeFromTabType(tabType);
+    return routesLoading[apiMode] === true;
+  };
+  
+  // Получение информации о маршруте для типа вкладки
+  const getRouteInfoForTab = (tabType) => {
+    const apiMode = getApiModeFromTabType(tabType);
+    return allRoutes[apiMode];
+  };
+  
+  // Форматирование времени маршрута
   const formatDuration = (minutes) => {
-    if (minutes === undefined || minutes === null) return '--';
+    if (minutes === undefined || minutes === null) return "—";
     
-    // Обеспечиваем, что у нас всегда положительное число
-    const positiveMinutes = Math.max(1, Math.round(minutes));
-    
-    if (positiveMinutes < 60) {
-      return `${positiveMinutes}м`;
-    } else {
-      const hours = Math.floor(positiveMinutes / 60);
-      const mins = Math.round(positiveMinutes % 60);
-      return `${hours}ч ${mins > 0 ? `${mins}м` : ''}`;
+    if (minutes < 1) {
+      return "< 1 мин";
     }
+    
+    if (minutes < 60) {
+      return `${Math.round(minutes)} мин`;
+    }
+    
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.round(minutes % 60);
+    
+    if (mins === 0) {
+      return `${hours} ч`;
+    }
+    
+    return `${hours} ч ${mins} мин`;
   };
   
-  // Преобразуем расстояние для более удобного отображения
+  // Форматирование расстояния
   const formatDistance = (kilometers) => {
-    if (!kilometers && kilometers !== 0) return '--';
-    return `${kilometers.toFixed(1)} км`;
+    if (kilometers === undefined || kilometers === null) return "—";
+    
+    return kilometers < 1 
+      ? `${Math.round(kilometers * 1000)} м` 
+      : `${kilometers.toFixed(1)} км`;
   };
   
-  // Переключение режима маршрута
+  // Обработчик смены типа маршрута
   const handleRouteTypeChange = (type) => {
-    console.log('RouteBottomPanel: переключение типа маршрута на', type);
-    if (onRouteTypeChange) {
-      onRouteTypeChange(type);
+    // Если это вкладка деталей, просто разворачиваем панель
+    if (type === 'details') {
+      setExpanded(true);
+    } else {
+      // Иначе вызываем родительский обработчик с соответствующим режимом API
+      onRouteTypeChange && onRouteTypeChange(getApiModeFromTabType(type));
     }
   };
   
-  // Функция для переключения развернутого/свернутого состояния
+  // Обработчик переключения развернутого состояния
   const toggleExpanded = () => {
     setExpanded(!expanded);
   };
   
-  // Получаем фактическое время для активного режима
-  const getActiveDuration = () => {
-    if (!routeInfo) return '--';
-    
-    let activeDuration;
-    
+  // Получение названия активного типа
+  const getActiveTypeName = () => {
     switch (activeRouteType) {
-      case 'DRIVING':
-      case 'car':
-        activeDuration = routeTimes.car;
-        break;
-      case 'WALKING':
       case 'walk':
-        activeDuration = routeTimes.walk;
-        break;
-      case 'BICYCLING':
+        return 'Пешком';
       case 'bicycle':
-        activeDuration = routeTimes.bicycle;
-        break;
-      case 'TRANSIT':
+        return 'Велосипед';
       case 'public_transport':
-        activeDuration = routeTimes.public_transport;
-        break;
+        return 'Транспорт';
+      case 'subway':
+        return 'Метро';
+      case 'car':
       default:
-        activeDuration = routeInfo.duration;
+        return 'На машине';
     }
-    
-    return formatDuration(activeDuration);
   };
   
-  // Если нет данных о маршруте или информации о маршруте, ничего не отображаем
-  if (!route || !route.origin || !route.destination) {
-    return null;
-  }
+  // Получаем длительность для отображения
+  const getDisplayDuration = () => {
+    if (!routeInfo) return "—";
+    return formatDuration(routeInfo.duration);
+  };
+  
+  // Получаем расстояние для отображения
+  const getDisplayDistance = () => {
+    if (!routeInfo) return "—";
+    return formatDistance(routeInfo.distance);
+  };
+  
+  // Проверяем, приблизительное ли значение у маршрута
+  const isApproximateRoute = routeInfo?.isApproximate === true;
+  
+  // Получаем соответствие типов вкладок и режимов API
+  const tabRoutesInfo = {
+    car: getRouteInfoForTab('car'),
+    walk: getRouteInfoForTab('walk'),
+    bicycle: getRouteInfoForTab('bicycle'),
+    public_transport: getRouteInfoForTab('public_transport'),
+    subway: getRouteInfoForTab('subway')
+  };
+  
+  // Получаем информацию о загрузке для каждого типа
+  const tabsLoadingState = {
+    car: isTabLoading('car'),
+    walk: isTabLoading('walk'),
+    bicycle: isTabLoading('bicycle'),
+    public_transport: isTabLoading('public_transport'),
+    subway: isTabLoading('subway')
+  };
   
   return (
     <View style={styles.container}>
-      {/* Главная информация о маршруте */}
-      <View style={styles.mainInfoContainer}>
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.cancelButton} onPress={onCancel}>
+          <Ionicons name="close" size={24} color="#666" />
+        </TouchableOpacity>
+        
         <View style={styles.routeInfo}>
-          {routeInfo ? (
-            <>
-              <View style={styles.timeDistanceContainer}>
-                <Text style={styles.duration}>
-                  {getActiveDuration()}
-                </Text>
-                {routeInfo.isApproximate && (
-                  <Text style={styles.approximation}>примерно</Text>
-                )}
-                <Text style={styles.distance}>
-                  • {formatDistance(routeInfo.distance)}
-                </Text>
-              </View>
-              {routeInfo.isApproximate && (
-                <Text style={styles.warning}>
-                  Точные данные недоступны. Показана приблизительная информация.
-                </Text>
-              )}
-            </>
-          ) : (
-            <View style={styles.timeDistanceContainer}>
-              <Text style={styles.loadingText}>Расчет маршрута...</Text>
-            </View>
-          )}
+          <Text style={styles.routeType}>
+            {getActiveTypeName()}
+            {isApproximateRoute && " (примерно)"}
+          </Text>
+          <Text style={styles.routeMetrics}>
+            {getDisplayDistance()} • {getDisplayDuration()}
+          </Text>
         </View>
         
-        <TouchableOpacity style={styles.closeButton} onPress={onCancel}>
-          <Ionicons name="close" size={24} color={theme.colors.textSecondary} />
+        <TouchableOpacity style={styles.expandButton} onPress={toggleExpanded}>
+          <Ionicons name={expanded ? "chevron-down" : "chevron-up"} size={24} color="#666" />
         </TouchableOpacity>
       </View>
-
-      {/* Выбор типа транспорта */}
-      <View style={styles.transportTypeWrapper}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.transportTypesContainer}
-        >
-          <TouchableOpacity
-            style={[
-              styles.transportTypeButton,
-              activeRouteType === 'car' && styles.transportTypeButtonActive
-            ]}
-            onPress={() => handleRouteTypeChange('DRIVING')}
-          >
-            <Ionicons 
-              name="car-outline" 
-              size={22} 
-              color={activeRouteType === 'car' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text 
-              style={[
-                styles.transportTypeText,
-                activeRouteType === 'car' && styles.transportTypeTextActive
-              ]}
-            >
-              {formatDuration(routeTimes.car)}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.transportTypeButton,
-              activeRouteType === 'public_transport' && styles.transportTypeButtonActive
-            ]}
-            onPress={() => handleRouteTypeChange('TRANSIT')}
-          >
-            <Ionicons 
-              name="bus-outline" 
-              size={22} 
-              color={activeRouteType === 'public_transport' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text 
-              style={[
-                styles.transportTypeText,
-                activeRouteType === 'public_transport' && styles.transportTypeTextActive
-              ]}
-            >
-              {formatDuration(routeTimes.public_transport)}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.transportTypeButton,
-              activeRouteType === 'bicycle' && styles.transportTypeButtonActive
-            ]}
-            onPress={() => handleRouteTypeChange('BICYCLING')}
-          >
-            <Ionicons 
-              name="bicycle-outline" 
-              size={22} 
-              color={activeRouteType === 'bicycle' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text 
-              style={[
-                styles.transportTypeText,
-                activeRouteType === 'bicycle' && styles.transportTypeTextActive
-              ]}
-            >
-              {formatDuration(routeTimes.bicycle)}
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.transportTypeButton,
-              activeRouteType === 'walk' && styles.transportTypeButtonActive
-            ]}
-            onPress={() => handleRouteTypeChange('WALKING')}
-          >
-            <Ionicons 
-              name="walk-outline" 
-              size={22} 
-              color={activeRouteType === 'walk' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text 
-              style={[
-                styles.transportTypeText,
-                activeRouteType === 'walk' && styles.transportTypeTextActive
-              ]}
-            >
-              {formatDuration(routeTimes.walk)}
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </View>
-
-      {/* Информация о начальной и конечной точке */}
-      <View style={styles.routePointsContainer}>
-        <View style={styles.routePoint}>
-          <View style={styles.pointIconContainer}>
-            <Ionicons 
-              name="location" 
-              size={16} 
-              color={theme.colors.primary} 
-            />
+      
+      {expanded && (
+        <View style={styles.details}>
+          <View style={styles.routePoints}>
+            <View style={styles.routePoint}>
+              <View style={styles.startDot} />
+              <Text style={styles.pointText} numberOfLines={1}>{originName}</Text>
+            </View>
+            
+            <View style={styles.verticalLine} />
+            
+            <View style={styles.routePoint}>
+              <View style={styles.endDot} />
+              <Text style={styles.pointText} numberOfLines={1}>{destinationName}</Text>
+            </View>
           </View>
-          <Text style={styles.pointText} numberOfLines={1}>
-            {originName}
-          </Text>
           
-          <TouchableOpacity style={styles.editPointButton}>
-            <Ionicons name="create-outline" size={18} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
-        
-        <View style={styles.routePointConnector}>
-          <View style={styles.connectorLine} />
-        </View>
-        
-        <View style={styles.routePoint}>
-          <View style={styles.pointIconContainer}>
-            <Ionicons 
-              name="location" 
-              size={16} 
-              color={theme.colors.error} 
-            />
+          {/* Дополнительная информация о маршруте */}
+          <View style={styles.additionalInfo}>
+            <Text style={styles.infoLabel}>Расстояние:</Text>
+            <Text style={styles.infoValue}>{getDisplayDistance()}</Text>
+            
+            <Text style={styles.infoLabel}>Время в пути:</Text>
+            <Text style={styles.infoValue}>{getDisplayDuration()}</Text>
           </View>
-          <Text style={styles.pointText} numberOfLines={1}>
-            {destinationName}
-          </Text>
-          
-          <TouchableOpacity style={styles.editPointButton}>
-            <Ionicons name="create-outline" size={18} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
         </View>
-      </View>
-
-      {/* Кнопка начала маршрута */}
+      )}
+      
+      <RouteTypeTabs 
+        activeTab={activeRouteType} 
+        onTabChange={handleRouteTypeChange}
+        routesInfo={tabRoutesInfo}
+        loadingState={tabsLoadingState}
+      />
+      
       <TouchableOpacity 
         style={styles.startButton}
         onPress={onStartNavigation}
       >
-        <Ionicons name="navigate" size={20} color="white" style={styles.startButtonIcon} />
-        <Text style={styles.startButtonText}>Начать маршрут</Text>
+        <Ionicons name="navigate" size={20} color="white" />
+        <Text style={styles.startButtonText}>Начать движение</Text>
       </TouchableOpacity>
     </View>
   );
@@ -374,122 +280,84 @@ const styles = StyleSheet.create({
     elevation: 5,
     zIndex: 10,
   },
-  mainInfoContainer: {
+  header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     marginBottom: 16,
+  },
+  cancelButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.05)',
   },
   routeInfo: {
     flex: 1,
     marginRight: 8,
   },
-  timeDistanceContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    marginBottom: 4,
-  },
-  duration: {
-    fontSize: 24,
+  routeType: {
+    fontSize: 18,
     fontWeight: 'bold',
     color: theme.colors.textPrimary,
-    marginRight: 4,
   },
-  approximation: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-    fontStyle: 'italic',
-    marginRight: 4,
-  },
-  distance: {
+  routeMetrics: {
     fontSize: 16,
     color: theme.colors.textSecondary,
-    marginLeft: 4,
   },
-  warning: {
-    fontSize: 12,
-    color: theme.colors.warning,
-    fontStyle: 'italic',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: theme.colors.textSecondary,
-    fontStyle: 'italic',
-  },
-  closeButton: {
+  expandButton: {
     padding: 8,
     borderRadius: 20,
     backgroundColor: 'rgba(0,0,0,0.05)',
   },
-  transportTypeWrapper: {
-    borderRadius: 12,
-    overflow: 'hidden',
+  details: {
     marginBottom: 16,
-    backgroundColor: 'rgba(0,0,0,0.03)',
   },
-  transportTypesContainer: {
-    flexDirection: 'row',
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-  },
-  transportTypeButton: {
+  routePoints: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    marginHorizontal: 4,
-  },
-  transportTypeButtonActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  transportTypeText: {
-    fontSize: 14,
-    color: theme.colors.textPrimary,
-    marginLeft: 6,
-    fontWeight: '500',
-  },
-  transportTypeTextActive: {
-    color: 'white',
-    fontWeight: '600',
-  },
-  routePointsContainer: {
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: theme.colors.border,
-    paddingVertical: 12,
-    marginBottom: 16,
   },
   routePoint: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 8,
   },
-  pointIconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: 'rgba(0,0,0,0.03)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+  startDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: theme.colors.primary,
+    marginRight: 8,
   },
-  routePointConnector: {
-    paddingLeft: 14,
-    height: 16,
-  },
-  connectorLine: {
+  verticalLine: {
     width: 1,
     height: '100%',
     backgroundColor: theme.colors.border,
+    marginHorizontal: 8,
+  },
+  endDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: theme.colors.error,
+    marginLeft: 8,
   },
   pointText: {
     flex: 1,
     fontSize: 15,
     color: theme.colors.textPrimary,
   },
-  editPointButton: {
-    padding: 8,
+  additionalInfo: {
+    marginTop: 16,
+  },
+  infoLabel: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: theme.colors.textPrimary,
+    marginBottom: 4,
+  },
+  infoValue: {
+    fontSize: 16,
+    color: theme.colors.textSecondary,
   },
   startButton: {
     backgroundColor: theme.colors.primary,
@@ -498,9 +366,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-  },
-  startButtonIcon: {
-    marginRight: 8,
   },
   startButtonText: {
     color: 'white',

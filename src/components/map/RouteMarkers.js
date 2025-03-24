@@ -33,10 +33,11 @@ const RouteMarkers = ({
         coordinate={origin}
         title={originInfo?.name || "Начало маршрута"}
         description={originInfo?.address || "Начальная точка маршрута"}
-        pinColor="green"
       >
-        <View style={styles.startMarker}>
-          <Ionicons name="navigate" size={30} color={theme.colors.primary} />
+        <View style={styles.markerContainer}>
+          <View style={styles.startMarker}>
+            <Ionicons name="navigate" size={22} color="white" />
+          </View>
         </View>
       </Marker>
       
@@ -45,10 +46,11 @@ const RouteMarkers = ({
         coordinate={destination}
         title={destinationInfo?.name || "Конец маршрута"}
         description={destinationInfo?.address || "Конечная точка маршрута"}
-        pinColor="red"
       >
-        <View style={styles.endMarker}>
-          <Ionicons name="flag" size={30} color="red" />
+        <View style={styles.markerContainer}>
+          <View style={styles.endMarker}>
+            <Ionicons name="flag" size={18} color="white" />
+          </View>
         </View>
       </Marker>
     </>
@@ -56,32 +58,42 @@ const RouteMarkers = ({
 };
 
 const styles = StyleSheet.create({
-  startMarker: {
-    position: 'absolute',
-    top: -20,
-    left: -10,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'white',
+  markerContainer: {
+    width: 40,
+    height: 40,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: theme.colors.primary,
+  },
+  startMarker: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: theme.colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: 'white',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
   endMarker: {
-    position: 'absolute',
-    top: -20,
-    right: -10,
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: 'white',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'red',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'red',
-  },
+    borderWidth: 3,
+    borderColor: 'white',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  }
 });
 
 export default RouteMarkers; 
