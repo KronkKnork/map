@@ -13,16 +13,49 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.jamstyle.MapEase",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSLocationWhenInUseUsageDescription": "MapEase requires access to your location to show it on the map and navigate.",
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
-      }
+      },
+      "package": "com.jamstyle.MapEase",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "MapEase требует доступ к вашей геолокации для отображения на карте и навигации."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "699756f9-505f-4cff-a6ae-0cc528d2b1e7"
+      }
+    },
+    "owner": "jamstyle",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/699756f9-505f-4cff-a6ae-0cc528d2b1e7"
     }
   }
 }
