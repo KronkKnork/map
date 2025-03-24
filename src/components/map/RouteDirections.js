@@ -128,6 +128,18 @@ const RouteDirections = ({
   const isMountedRef = useRef(true);
   const lastFetchTimeRef = useRef(0);
   
+  // Создаем или используем глобальный флаг ошибки API
+  if (typeof window.mapEaseApiBlocked === 'undefined') {
+    window.mapEaseApiBlocked = false;
+  }
+  
+  // Безопасное обновление состояния только если компонент смонтирован
+  const safeSetState = (setter, value) => {
+    if (isMountedRef.current) {
+      setter(value);
+    }
+  };
+  
   // Функция для получения цвета в зависимости от трафика (от 0 до 10)
   const getTrafficColor = useCallback((trafficValue) => {
     if (typeof trafficValue !== 'number' || trafficValue < 0) {
@@ -256,6 +268,24 @@ const RouteDirections = ({
       return;
     }
     
+    // Проверяем глобальный флаг блокировки API
+    if (window.mapEaseApiBlocked) {
+      console.log('RouteDirections: API заблокирован из-за предыдущих ошибок');
+      
+      // Отправляем информацию об ошибке API в родительский компонент
+      if (onRouteReady) {
+        onRouteReady({
+          coordinates: [],
+          distance: 0,
+          duration: 0,
+          isApproximate: true,
+          mode: mode,
+          error: "API_ACCESS_DENIED"
+        });
+      }
+      return;
+    }
+    
     // Обновляем параметры последнего запроса
     lastRequestParamsRef.current = requestParams;
     
@@ -275,6 +305,32 @@ const RouteDirections = ({
         // Проверяем что компонент все еще смонтирован
         if (!isMountedRef.current) return;
         
+        // Проверяем наличие ошибки API и устанавливаем глобальный флаг
+        if (result && result.error === "API_ACCESS_DENIED") {
+          console.error('RouteDirections: API недоступен (отказ в доступе)');
+          
+          // Устанавливаем глобальный флаг блокировки API, чтобы предотвратить повторные запросы
+          window.mapEaseApiBlocked = true;
+          
+          // Очищаем данные маршрута
+          safeSetState(setCoordinates, []);
+          safeSetState(setRouteInfo, null);
+          safeSetState(setTrafficData, []);
+          
+          // Уведомляем родительский компонент об ошибке
+          if (onRouteReady && isMountedRef.current) {
+            onRouteReady({
+              coordinates: [],
+              distance: 0,
+              duration: 0,
+              isApproximate: true,
+              mode: mode,
+              error: "API_ACCESS_DENIED"
+            });
+          }
+          return;
+        }
+        
         // Проверяем результат
         if (result && result.coordinates && result.coordinates.length > 0) {
           console.log(`RouteDirections: получен маршрут для режима ${mode}: ${result.coordinates.length} точек`);
@@ -282,8 +338,11 @@ const RouteDirections = ({
           // Устанавливаем флаг успешного получения маршрута
           routeFetchedRef.current = true;
           
-          setCoordinates(result.coordinates);
-          setRouteInfo({
+          // Сбрасываем глобальный флаг блокировки API при успешном запросе
+          window.mapEaseApiBlocked = false;
+          
+          safeSetState(setCoordinates, result.coordinates);
+          safeSetState(setRouteInfo, {
             distance: result.distance,
             duration: result.duration,
             isApproximate: result.isApproximate || false
@@ -291,12 +350,12 @@ const RouteDirections = ({
           
           // Сохраняем данные о пробках, если они есть
           if (result.trafficData && Array.isArray(result.trafficData)) {
-            setTrafficData(result.trafficData);
+            safeSetState(setTrafficData, result.trafficData);
           } else {
-            setTrafficData([]);
+            safeSetState(setTrafficData, []);
           }
           
-          if (onRouteReady) {
+          if (onRouteReady && isMountedRef.current) {
             onRouteReady({
               coordinates: result.coordinates,
               distance: result.distance,
@@ -308,8 +367,21 @@ const RouteDirections = ({
           }
         } else {
           console.log('RouteDirections: получен пустой результат');
-          setTrafficData([]);
-          handleFallbackRoute();
+          
+          safeSetState(setCoordinates, []);
+          safeSetState(setRouteInfo, null);
+          safeSetState(setTrafficData, []);
+          
+          if (onRouteReady && isMountedRef.current) {
+            onRouteReady({
+              coordinates: [],
+              distance: 0,
+              duration: 0,
+              isApproximate: true,
+              mode: mode,
+              error: "EMPTY_RESPONSE"
+            });
+          }
         }
       })
       .catch(error => {
@@ -318,8 +390,21 @@ const RouteDirections = ({
         
         if (error.name !== 'AbortError') {
           console.error('RouteDirections: ошибка при получении маршрута:', error);
-          setTrafficData([]);
-          handleFallbackRoute();
+          
+          safeSetState(setCoordinates, []);
+          safeSetState(setRouteInfo, null);
+          safeSetState(setTrafficData, []);
+          
+          if (onRouteReady && isMountedRef.current) {
+            onRouteReady({
+              coordinates: [],
+              distance: 0,
+              duration: 0,
+              isApproximate: true,
+              mode: mode,
+              error: "REQUEST_ERROR"
+            });
+          }
         }
       });
     
@@ -333,65 +418,34 @@ const RouteDirections = ({
         clearTimeout(timerRef.current);
       }
     };
-  }, [origin, destination, mode, waypoints]);
+  }, [origin, destination, mode, waypoints, onRouteReady]);
   
-  // Обработка состояния ошибки - показываем прямую линию
-  const handleFallbackRoute = useCallback(() => {
-    if (!origin || !destination || !isMountedRef.current) return;
-    
-    console.log('RouteDirections: используем резервный маршрут по прямой линии');
-    
-    const directDistance = calculateDirectDistance(origin, destination);
-    const approximateTime = calculateApproximateTime(directDistance, mode);
-    
-    // Создаем прямую линию с несколькими точками для плавности
-    const coordinates = [origin];
-    
-    // Добавляем промежуточные точки
-    const numPoints = Math.max(2, Math.min(10, Math.ceil(directDistance * 5)));
-    for (let i = 1; i < numPoints; i++) {
-      const ratio = i / numPoints;
-      
-      const lat = origin.latitude + (destination.latitude - origin.latitude) * ratio;
-      const lng = origin.longitude + (destination.longitude - origin.longitude) * ratio;
-      
-      coordinates.push({ latitude: lat, longitude: lng });
-    }
-    
-    coordinates.push(destination);
-    
-    setCoordinates(coordinates);
-    setRouteInfo({
-      distance: directDistance,
-      duration: approximateTime,
-      isApproximate: true
-    });
-    
-    if (onRouteReady) {
-      console.log(`RouteDirections: отправляем данные резервного маршрута в колбэк`);
-      onRouteReady({
-        coordinates: coordinates,
-        distance: directDistance,
-        duration: approximateTime,
-        isApproximate: true,
-        mode: mode
-      });
-      initialFetchDoneRef.current = true;
-    }
-    
-    routeFetchedRef.current = true;
-  }, [origin, destination, mode, onRouteReady]);
-
-  // Сбрасываем флаг смонтированности компонента при размонтировании
+  // Эффект для сброса флага смонтированности компонента при размонтировании
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
       isMountedRef.current = false;
+      // Отменяем запрос если он в процессе
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      // Очищаем таймер если есть
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
     };
   }, []);
-
-  // Расчет прямого расстояния между двумя точками (формула Haversine)
+  
+  // Расчет прямого расстояния между двумя точками (формула Haversine) - для аннотаций
   const calculateDirectDistance = (pointA, pointB) => {
+    if (!pointA || !pointB || 
+        !pointA.latitude || !pointA.longitude || 
+        !pointB.latitude || !pointB.longitude) {
+      return 0;
+    }
+    
     const R = 6371; // Радиус Земли в километрах
     const dLat = deg2rad(pointB.latitude - pointA.latitude);
     const dLon = deg2rad(pointB.longitude - pointA.longitude);
@@ -409,87 +463,77 @@ const RouteDirections = ({
     return deg * (Math.PI/180);
   };
   
-  // Рассчитываем примерное время в зависимости от типа транспорта
-  const calculateApproximateTime = (distance, mode) => {
-    switch (mode) {
-      case 'WALKING':
-        // Средняя скорость ходьбы 5 км/ч
-        return (distance / 5) * 60;
-      case 'BICYCLING':
-        // Средняя скорость велосипеда 15 км/ч
-        return (distance / 15) * 60;
-      case 'TRANSIT':
-        // Среднее для общественного транспорта 25 км/ч + время ожидания
-        return (distance / 25) * 60 + 10; // +10 минут на ожидание
-      case 'DRIVING':
-      default:
-        // Минимум 5 минут для авто
-        const carTime = (distance / 40) * 60;
-        return Math.max(5, carTime);
-    }
-  };
-
   // Находим точку для размещения аннотации (рядом с серединой маршрута)
   const getAnnotationCoordinate = useCallback(() => {
     if (!coordinates || coordinates.length < 3) return null;
     
-    // Убедимся, что массив координат правильный
-    for (let i = 0; i < coordinates.length; i++) {
+    // Безопасная проверка координат
+    for (let i = 0; i < Math.min(coordinates.length, 100); i++) {
       const coord = coordinates[i];
       if (!coord || typeof coord.latitude !== 'number' || typeof coord.longitude !== 'number' ||
           isNaN(coord.latitude) || isNaN(coord.longitude)) {
-        console.log(`Некорректные координаты в позиции ${i}:`, coord);
+        console.log(`RouteDirections: некорректные координаты в позиции ${i}`);
         return null;
       }
     }
     
-    // Берем точку примерно на 40% пути (это обычно более заметная часть маршрута)
+    // Берем точку примерно на 40% пути
     const index = Math.floor(coordinates.length * 0.4);
-    return coordinates[index];
+    if (index >= 0 && index < coordinates.length) {
+      return coordinates[index];
+    }
+    
+    return null;
   }, [coordinates]);
 
+  // Проверка на наличие данных маршрута
   if (!coordinates || coordinates.length === 0) {
     return null;
   }
 
-  // Получаем текущий цвет и ширину линии
-  const currentColor = strokeColor || theme.colors.primary;
-  const currentWidth = getRouteWidth();
-  const linePattern = getRouteLinePattern();
-  
-  // Получаем координату для аннотации
-  const annotationCoordinate = getAnnotationCoordinate();
+  try {
+    // Получаем текущий цвет и ширину линии
+    const currentColor = strokeColor || theme.colors.primary;
+    const currentWidth = getRouteWidth();
+    const linePattern = getRouteLinePattern();
+    
+    // Получаем координату для аннотации
+    const annotationCoordinate = getAnnotationCoordinate();
 
-  return (
-    <>
-      {/* Рендерим маршрут в зависимости от наличия данных о пробках */}
-      {mode === 'DRIVING' && trafficData.length > 0 ? 
-        renderTrafficSegments() : 
-        coordinates.length > 0 && (
-          <Polyline
-            coordinates={coordinates}
-            strokeColor={currentColor}
-            strokeWidth={currentWidth}
-            lineDashPattern={linePattern}
-            geodesic
-            zIndex={1}
-            lineCap="round"
-            lineJoin="round"
+    return (
+      <>
+        {/* Рендерим маршрут в зависимости от наличия данных о пробках */}
+        {mode === 'DRIVING' && trafficData.length > 0 ? 
+          renderTrafficSegments() : 
+          coordinates.length > 0 && (
+            <Polyline
+              coordinates={coordinates}
+              strokeColor={currentColor}
+              strokeWidth={currentWidth}
+              lineDashPattern={linePattern}
+              geodesic
+              zIndex={1}
+              lineCap="round"
+              lineJoin="round"
+            />
+          )
+        }
+        
+        {/* Аннотация с временем маршрута */}
+        {routeInfo && annotationCoordinate && (
+          <RouteAnnotation 
+            coordinate={annotationCoordinate}
+            duration={routeInfo.duration}
+            isApproximate={routeInfo.isApproximate}
+            mode={mode}
           />
-        )
-      }
-      
-      {/* Аннотация с временем маршрута */}
-      {routeInfo && annotationCoordinate && (
-        <RouteAnnotation 
-          coordinate={annotationCoordinate}
-          duration={routeInfo.duration}
-          isApproximate={routeInfo.isApproximate}
-          mode={mode}
-        />
-      )}
-    </>
-  );
+        )}
+      </>
+    );
+  } catch (error) {
+    console.error('RouteDirections: ошибка при рендеринге компонента:', error);
+    return null;
+  }
 };
 
 const styles = StyleSheet.create({
