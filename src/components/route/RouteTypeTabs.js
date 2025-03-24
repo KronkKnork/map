@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
@@ -9,13 +9,17 @@ import { theme } from '../../theme';
  * @param {function} onTabChange - Функция обратного вызова при смене вкладки
  * @param {object} routesInfo - Объект с информацией о маршрутах для каждого типа транспорта
  * @param {object} loadingState - Объект с информацией о загрузке маршрутов
+ * @param {boolean} showLoadingStates - Показывать ли индикаторы загрузки
  */
 const RouteTypeTabs = ({ 
   activeTab = 'car',
   onTabChange,
   routesInfo = {},
-  loadingState = {}
+  loadingState = {},
+  showLoadingStates = true
 }) => {
+  const [buttonsDisabled, setButtonsDisabled] = useState(false);
+  
   // Форматирование времени маршрута
   const formatDuration = (minutes) => {
     if (minutes === undefined || minutes === null) return "—";
@@ -86,6 +90,21 @@ const RouteTypeTabs = ({
     }
   ];
 
+  // Обработчик клика по вкладке
+  const handleTabPress = (type) => {
+    // Не делаем ничего, если нажат текущий тип или кнопки заблокированы
+    if (type === activeTab || buttonsDisabled) return;
+    
+    // Вызываем обработчик смены типа маршрута
+    onTabChange(type);
+    
+    // Блокируем кнопки на 1000 мс (1 секунду) для предотвращения быстрых повторных нажатий
+    setButtonsDisabled(true);
+    setTimeout(() => {
+      setButtonsDisabled(false);
+    }, 1000);
+  };
+
   return (
     <ScrollView 
       horizontal 
@@ -108,10 +127,11 @@ const RouteTypeTabs = ({
             style={[
               styles.tab,
               isActive && styles.activeTab,
-              isDisabled && styles.disabledTab
+              isDisabled && styles.disabledTab,
+              buttonsDisabled && styles.disabledTab
             ]}
-            onPress={() => !isDisabled && onTabChange && onTabChange(tab.id)}
-            disabled={isDisabled}
+            onPress={() => !isDisabled && handleTabPress(tab.id)}
+            disabled={buttonsDisabled || loading}
             activeOpacity={0.7}
           >
             <Ionicons 
@@ -132,24 +152,23 @@ const RouteTypeTabs = ({
                 {tab.shortTitle}
               </Text>
               
-              {loading ? (
+              {showLoadingStates && loading && (
                 <ActivityIndicator 
                   size="small" 
                   color={isActive ? 'white' : theme.colors.primary} 
                   style={styles.loader}
                 />
-              ) : (
-                duration !== null && (
-                  <Text 
-                    style={[
-                      styles.durationText, 
-                      isActive && styles.activeDurationText,
-                      isDisabled && styles.disabledTabText
-                    ]}
-                  >
-                    {formatDuration(duration)}
-                  </Text>
-                )
+              )}
+              {duration !== null && (
+                <Text 
+                  style={[
+                    styles.durationText, 
+                    isActive && styles.activeDurationText,
+                    isDisabled && styles.disabledTabText
+                  ]}
+                >
+                  {formatDuration(duration)}
+                </Text>
               )}
             </View>
           </TouchableOpacity>
