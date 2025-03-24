@@ -797,6 +797,11 @@ const MapScreen = () => {
     };
   }, []);
 
+  // Проверка, загружается ли текущий маршрут
+  const isCurrentRouteLoading = () => {
+    return routesLoading[routeMode] === true;
+  };
+
   // Рендер компонента
   return (
     <SafeAreaView style={styles.container}>
@@ -809,7 +814,7 @@ const MapScreen = () => {
           mapType={currentMapType}
           rotateEnabled={!isRouting} // Отключаем вращение при маршруте
           userLocation={location}
-          routeData={isRouting && selectedLocation && location ? {
+          routeData={isRouting && selectedLocation && location && !isCurrentRouteLoading() ? {
             origin: isReverseRoute ? selectedLocation : {
               latitude: location.coords.latitude,
               longitude: location.coords.longitude,
@@ -821,6 +826,7 @@ const MapScreen = () => {
             mode: routeMode,
           } : null}
           onRouteReady={handleRouteReady}
+          isRouteLoading={isCurrentRouteLoading()}
         >
           {/* Маркер выбранного места (не в режиме маршрута) */}
           <SelectedPlaceMarker 
@@ -840,8 +846,21 @@ const MapScreen = () => {
             } : null) : selectedLocation}
             originInfo={isReverseRoute ? selectedPlaceInfo : { name: "Ваше местоположение" }}
             destinationInfo={isReverseRoute ? { name: "Ваше местоположение" } : selectedPlaceInfo}
-            isRouting={isRouting}
+            isRouting={isRouting && !isCurrentRouteLoading()}
           />
+          
+          {/* Индикатор загрузки маршрута */}
+          {isRouting && isCurrentRouteLoading() && (
+            <View style={styles.routeLoadingContainer}>
+              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <Text style={styles.routeLoadingText}>
+                Строится маршрут {getTransportTypeFromMode(routeMode) === 'car' ? 'на автомобиле' : 
+                  getTransportTypeFromMode(routeMode) === 'walk' ? 'пешком' : 
+                  getTransportTypeFromMode(routeMode) === 'bicycle' ? 'на велосипеде' : 
+                  'на общественном транспорте'}...
+              </Text>
+            </View>
+          )}
         </MapViewComponent>
 
         {/* Строка поиска */}
@@ -1188,6 +1207,29 @@ const styles = StyleSheet.create({
     backgroundColor: 'red',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  routeLoadingContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -100 }, { translateY: -40 }],
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 12,
+    padding: 16,
+    width: 200,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+  },
+  routeLoadingText: {
+    marginTop: 8,
+    color: theme.colors.textPrimary,
+    fontSize: 14,
+    textAlign: 'center',
   },
 });
 

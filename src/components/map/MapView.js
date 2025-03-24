@@ -15,6 +15,7 @@ const MapViewComponent = forwardRef(({
   userLocation,
   routeData,
   onRouteReady,
+  isRouteLoading = false,
   children
 }, ref) => {
   // Сохраняем последний валидный регион для случаев сбоев
@@ -231,8 +232,8 @@ const MapViewComponent = forwardRef(({
         minZoomLevel={3}
         maxZoomLevel={20}
       >
-        {/* Отображение маршрута если данные предоставлены */}
-        {routeData && routeData.origin && routeData.destination && (
+        {/* Отображение маршрута если данные предоставлены и маршрут не загружается */}
+        {routeData && routeData.origin && routeData.destination && !isRouteLoading && (
           <RouteDirections
             origin={routeData.origin}
             destination={routeData.destination}
