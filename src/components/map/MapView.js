@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
 import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
 import RouteDirections from './RouteDirections';
@@ -6,7 +6,7 @@ import RouteDirections from './RouteDirections';
 /**
  * Компонент карты с возможностью отображения маршрутов
  */
-const MapViewComponent = React.forwardRef(({
+const MapViewComponent = forwardRef(({
   region,
   onRegionChange,
   onPress,

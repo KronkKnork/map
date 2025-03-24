@@ -11,24 +11,29 @@ export const searchPlaces = async (query, limit = 10, userLocation = null) => {
     
     // Добавляем таймаут для обеспечения завершения запроса
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 секунд таймаут
+    const timeoutId = setTimeout(() => controller.abort(), 6000); // Таймаут 6 секунд
     
     // Базовые параметры запроса
     const params = {
       q: query,
       format: 'json',
       addressdetails: 1,
-      limit: limit,
+      limit: Math.min(limit * 2, 50), // Запрашиваем больше результатов для лучшей сортировки
       'accept-language': 'ru,en', // Предпочитаем русский язык в результатах
+      extratags: 1,
+      namedetails: 1
     };
     
-    // Если передано местоположение пользователя, добавляем параметры для поиска с учетом этого
+    // Если передано местоположение пользователя, добавляем параметры для точки отсчета
     if (userLocation && userLocation.latitude && userLocation.longitude) {
       params.lat = userLocation.latitude;
       params.lon = userLocation.longitude;
-      // Задаем небольшой радиус для начала поиска локально
-      params.zoom = 15; // 15 - город, 18 - район, 10 - регион
+      
+      // Не добавляем viewbox, чтобы не ограничивать поиск географически,
+      // но используем координаты как точку отсчета для сортировки
     }
+    
+    console.log(`API: Поиск "${query}" по всему миру`);
     
     const response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
       params,
@@ -37,32 +42,31 @@ export const searchPlaces = async (query, limit = 10, userLocation = null) => {
         'Accept': 'application/json',
       },
       signal: controller.signal,
-      timeout: 10000
+      timeout: 6000
     });
     
     clearTimeout(timeoutId);
     
-    console.log(`Получено ${response.data.length} результатов поиска`);
-    
-    // Если нет результатов или их мало, попробуем запрос без учета местоположения
-    if (response.data.length < 3 && userLocation) {
-      console.log('Мало результатов, пробуем запрос без учета местоположения');
-      return await searchByNameWithFallback(query, limit, userLocation);
+    if (!response.data || !Array.isArray(response.data)) {
+      console.error('Некорректный формат результатов поиска:', response.data);
+      return [];
     }
-
+    
+    console.log(`API: Получено ${response.data.length} результатов поиска`);
+    
     // Преобразуем данные в нужный формат
-    const formattedResults = response.data.map((item) => ({
+    let results = response.data.map((item) => ({
       id: item.place_id,
-      name: item.display_name.split(',')[0],
+      name: item.namedetails?.name || item.display_name.split(',')[0],
       address: item.display_name,
       latitude: parseFloat(item.lat),
       longitude: parseFloat(item.lon),
       type: getTypeFromCategory(item.class),
     }));
     
-    // Если есть местоположение пользователя, рассчитываем расстояние и сортируем
+    // Если есть местоположение пользователя, рассчитываем расстояние до каждого результата
     if (userLocation && userLocation.latitude && userLocation.longitude) {
-      formattedResults.forEach(result => {
+      results.forEach(result => {
         if (result.latitude && result.longitude) {
           result.distance = calculateDistance(
             userLocation.latitude,
@@ -73,28 +77,30 @@ export const searchPlaces = async (query, limit = 10, userLocation = null) => {
         }
       });
       
-      // Сортируем результаты по расстоянию
-      formattedResults.sort((a, b) => {
+      // Сортируем результаты по расстоянию (от ближнего к дальнему)
+      results.sort((a, b) => {
         if (!a.distance) return 1;
         if (!b.distance) return -1;
         return a.distance - b.distance;
       });
     }
     
-    return formattedResults;
+    // Ограничиваем результаты запрошенным лимитом
+    return results.slice(0, limit);
   } catch (error) {
-    // Если первый запрос завершился с ошибкой, попробуем альтернативный подход
-    if (error.code === 'ECONNABORTED' || error.name === 'AbortError') {
-      console.error('Таймаут запроса поиска, пробуем резервный метод:', error);
-      return await searchByNameWithFallback(query, limit, userLocation);
-    }
-    
     console.error('Ошибка при поиске мест:', error);
-    throw error;
+    
+    // Пробуем резервный метод в случае ошибки
+    try {
+      return await searchByNameWithFallback(query, limit, userLocation);
+    } catch (fallbackError) {
+      console.error('Ошибка при резервном поиске:', fallbackError);
+      return []; // В крайнем случае возвращаем пустой массив
+    }
   }
 };
 
-// Резервный метод поиска
+// Резервный метод поиска (более простой запрос)
 const searchByNameWithFallback = async (query, limit = 10, userLocation = null) => {
   try {
     console.log(`Пробуем резервный метод поиска для: ${query}`);
@@ -105,17 +111,13 @@ const searchByNameWithFallback = async (query, limit = 10, userLocation = null) 
       format: 'json',
       'accept-language': 'ru,en',
       addressdetails: 1,
-      limit: Math.min(limit * 2, 50), // Увеличиваем лимит для резервного запроса
-      namedetails: 1,
-      extratags: 1
+      limit: Math.min(limit * 2, 30)
     };
     
-    // Если передано местоположение, используем его для более релевантного поиска
+    // Если передано местоположение, используем его только для точки отсчета
     if (userLocation && userLocation.latitude && userLocation.longitude) {
       params.lat = userLocation.latitude;
       params.lon = userLocation.longitude;
-      // Увеличиваем радиус поиска
-      params.zoom = 10; // региональный масштаб
     }
     
     const response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
@@ -124,28 +126,27 @@ const searchByNameWithFallback = async (query, limit = 10, userLocation = null) 
         'User-Agent': 'MapEase-App/1.0',
         'Accept': 'application/json',
       },
-      timeout: 15000
+      timeout: 6000
     });
     
     console.log(`Резервный метод вернул ${response.data.length} результатов`);
     
     if (response.data.length === 0) {
-      // Если и это не помогло, возвращаем пустой массив
       return [];
     }
     
-    const formattedResults = response.data.map((item) => ({
+    const results = response.data.map((item) => ({
       id: item.place_id,
-      name: item.namedetails?.name || item.display_name.split(',')[0],
+      name: item.display_name.split(',')[0],
       address: item.display_name,
       latitude: parseFloat(item.lat),
       longitude: parseFloat(item.lon),
-      type: getTypeFromCategory(item.class),
+      type: getTypeFromCategory(item.class)
     }));
     
     // Если есть местоположение пользователя, рассчитываем расстояние и сортируем
     if (userLocation && userLocation.latitude && userLocation.longitude) {
-      formattedResults.forEach(result => {
+      results.forEach(result => {
         if (result.latitude && result.longitude) {
           result.distance = calculateDistance(
             userLocation.latitude,
@@ -157,17 +158,81 @@ const searchByNameWithFallback = async (query, limit = 10, userLocation = null) 
       });
       
       // Сортируем результаты по расстоянию
-      formattedResults.sort((a, b) => {
+      results.sort((a, b) => {
         if (!a.distance) return 1;
         if (!b.distance) return -1;
         return a.distance - b.distance;
       });
     }
     
-    return formattedResults;
+    return results.slice(0, limit);
   } catch (error) {
     console.error('Ошибка при резервном поиске:', error);
     return []; // Возвращаем пустой массив вместо ошибки
+  }
+};
+
+// Локальный поиск для приоритизации ближайших результатов
+const searchLocalPlaces = async (query, limit = 10, userLocation = null) => {
+  try {
+    if (!userLocation) return [];
+    
+    console.log(`Локальный поиск для: ${query}`);
+    
+    const params = {
+      q: query,
+      format: 'json',
+      'accept-language': 'ru,en',
+      addressdetails: 1,
+      limit: Math.min(limit * 2, 30), 
+      viewbox: `${userLocation.longitude - 0.1},${userLocation.latitude - 0.1},${userLocation.longitude + 0.1},${userLocation.latitude + 0.1}`,
+      bounded: 1, // Ограничиваем поиск в пределах viewbox
+      zoom: 18 // Очень детальный масштаб для локального поиска
+    };
+    
+    const response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
+      params,
+      headers: {
+        'User-Agent': 'MapEase-App/1.0',
+        'Accept': 'application/json',
+      },
+      timeout: 5000 // Короткий таймаут
+    });
+    
+    if (!response.data || response.data.length === 0) {
+      return [];
+    }
+    
+    const formattedResults = response.data.map((item) => ({
+      id: item.place_id,
+      name: item.display_name.split(',')[0],
+      address: item.display_name,
+      latitude: parseFloat(item.lat),
+      longitude: parseFloat(item.lon),
+      type: getTypeFromCategory(item.class),
+    }));
+    
+    // Рассчитываем расстояние
+    formattedResults.forEach(result => {
+      if (result.latitude && result.longitude) {
+        result.distance = calculateDistance(
+          userLocation.latitude,
+          userLocation.longitude,
+          result.latitude,
+          result.longitude
+        );
+      }
+    });
+    
+    // Сортируем по расстоянию
+    return formattedResults.sort((a, b) => {
+      if (!a.distance) return 1;
+      if (!b.distance) return -1;
+      return a.distance - b.distance;
+    });
+  } catch (error) {
+    console.error('Ошибка при локальном поиске:', error);
+    return [];
   }
 };
 

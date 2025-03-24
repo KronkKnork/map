@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, Keyboard } from 'react-native';
+import { View, TextInput, TouchableOpacity, StyleSheet, Keyboard, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
 
@@ -12,6 +12,7 @@ import { theme } from '../../theme';
  * @param {Function} onFocus - Колбэк фокуса на поле
  * @param {Function} onBlur - Колбэк потери фокуса
  * @param {Function} onClear - Колбэк очистки поля
+ * @param {Boolean} isLoading - Флаг загрузки результатов
  */
 const SearchBar = ({
   value,
@@ -19,7 +20,8 @@ const SearchBar = ({
   onSubmit,
   onFocus,
   onBlur,
-  onClear
+  onClear,
+  isLoading = false
 }) => {
   const inputRef = useRef(null);
   
@@ -50,16 +52,23 @@ const SearchBar = ({
         returnKeyType="search"
         clearButtonMode="while-editing"
       />
-      <TouchableOpacity
-        style={styles.button}
-        onPress={handleButtonPress}
-      >
-        <Ionicons
-          name={value ? 'close' : 'search'}
-          size={24}
-          color={theme.colors.primary}
-        />
-      </TouchableOpacity>
+      
+      {isLoading ? (
+        <View style={styles.loaderContainer}>
+          <ActivityIndicator size="small" color={theme.colors.primary} />
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.button}
+          onPress={handleButtonPress}
+        >
+          <Ionicons
+            name={value ? 'close' : 'search'}
+            size={24}
+            color={theme.colors.primary}
+          />
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
@@ -92,6 +101,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  loaderContainer: {
+    padding: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 48,
+    height: 48,
+  }
 });
 
 export default SearchBar; 

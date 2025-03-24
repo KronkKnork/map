@@ -1,18 +1,36 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
 import { theme } from '../../theme';
 
 /**
- * Компонент для отображения результатов поиска
+ * Компонент для отображения результатов поиска с улучшенной обработкой нажатий
  * 
  * @param {Array} results - Массив результатов поиска
  * @param {Function} onSelectResult - Колбэк при выборе результата
  * @param {Boolean} isVisible - Флаг видимости списка результатов
  */
 const SearchResults = ({ results, onSelectResult, isVisible }) => {
+  // Если компонент скрыт или нет результатов, не рендерим
   if (!isVisible || !results || !results.length) {
     return null;
   }
+  
+  // Безопасная обработка выбора результата
+  const handleSelectResult = (result, index) => {
+    // Проверка на валидность результата
+    if (!result || !result.latitude || !result.longitude) {
+      console.error('Невозможно выбрать результат без координат:', result);
+      Alert.alert('Ошибка', 'Не удалось получить координаты для этого места. Попробуйте другой вариант.');
+      return;
+    }
+    
+    console.log(`SearchResults: выбран результат ${index}:`, result.name);
+    
+    // Передаем результат в обработчик, предоставленный родителем
+    if (typeof onSelectResult === 'function') {
+      onSelectResult(result);
+    }
+  };
   
   return (
     <View style={styles.container}>
@@ -21,10 +39,11 @@ const SearchResults = ({ results, onSelectResult, isVisible }) => {
           <TouchableOpacity
             key={result.id || index}
             style={styles.resultItem}
-            onPress={() => onSelectResult(result)}
+            activeOpacity={0.6}
+            onPress={() => handleSelectResult(result, index)}
           >
             <View style={styles.resultContent}>
-              <Text style={styles.resultName}>
+              <Text style={styles.resultName} numberOfLines={1}>
                 {result.name || "Без названия"}
               </Text>
               {result.address && (
@@ -32,7 +51,7 @@ const SearchResults = ({ results, onSelectResult, isVisible }) => {
                   {result.address}
                 </Text>
               )}
-              {result.distance && (
+              {result.distance !== undefined && (
                 <Text style={styles.resultDistance}>
                   {result.distance < 1 
                     ? `${Math.round(result.distance * 1000)} м` 
@@ -93,4 +112,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default SearchResults; 
+export default React.memo(SearchResults); 

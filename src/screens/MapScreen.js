@@ -23,6 +23,7 @@ const MapScreen = () => {
   const [searchText, setSearchText] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [isSearchLoading, setIsSearchLoading] = useState(false); // Индикатор загрузки поиска
   // Состояние для выбранного маршрута
   const [isRouting, setIsRouting] = useState(false);
   const [isReverseRoute, setIsReverseRoute] = useState(false);
@@ -198,19 +199,48 @@ const MapScreen = () => {
     }
   }, [isRouting, isSearchFocused, location]);
 
+  // Обработчик изменения текста в поле поиска
+  const handleSearchTextChange = (text) => {
+    setSearchText(text);
+    
+    // Очищаем предыдущий таймаут
+    if (searchTimerRef.current) {
+      clearTimeout(searchTimerRef.current);
+    }
+    
+    // Если текст пустой, сразу очищаем результаты
+    if (!text.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    
+    // Устанавливаем таймаут для выполнения поиска (дебаунсинг)
+    searchTimerRef.current = setTimeout(() => {
+      if (text.trim().length >= 3) {
+        handleSearch(text);
+      }
+    }, 300); // Задержка 300 мс между вводом и запросом
+  };
+
   // Обработчик запроса поиска
-  const handleSearch = () => {
-    if (!searchText.trim()) {
+  const handleSearch = (searchQuery = searchText) => {
+    // Используем либо переданный параметр, либо текущий searchText
+    const query = searchQuery.trim();
+    
+    if (!query) {
       setSearchResults([]);
       return;
     }
     
     // Минимальная длина запроса
-    if (searchText.trim().length < 3) {
+    if (query.length < 3) {
       return;
     }
     
-    console.log(`Выполняю поиск для запроса: "${searchText.trim()}"`);
+    console.log(`Выполняю поиск для запроса: "${query}"`);
+    
+    // Показываем индикатор загрузки
+    setIsSearchLoading(true);
     
     // Запрашиваем места по запросу, передавая координаты пользователя если они доступны
     const userCoords = location?.coords ? {
@@ -218,8 +248,11 @@ const MapScreen = () => {
       longitude: location.coords.longitude
     } : null;
     
-    searchPlaces(searchText, 20, userCoords)
+    searchPlaces(query, 20, userCoords)
       .then(results => {
+        // Скрываем индикатор загрузки
+        setIsSearchLoading(false);
+        
         if (!results || !Array.isArray(results)) {
           console.error('Некорректный формат результатов поиска:', results);
           setSearchResults([]);
@@ -232,6 +265,9 @@ const MapScreen = () => {
         setSearchResults(results);
       })
       .catch(error => {
+        // Скрываем индикатор загрузки
+        setIsSearchLoading(false);
+        
         console.error('Ошибка при поиске мест:', error);
         Alert.alert(
           "Ошибка поиска", 
@@ -243,72 +279,86 @@ const MapScreen = () => {
 
   // Обработчик выбора результата из поиска
   const handleSelectSearchResult = (result) => {
+    console.log('Выбор результата поиска:', JSON.stringify(result));
+    
     // Проверка на валидность результата
     if (!result) {
-      console.warn('Получен пустой результат поиска');
+      console.warn('Пустой результат поиска');
       return;
     }
     
-    // Попытка получить и преобразовать координаты
-    let lat, lng;
-    
-    try {
-      // Проверяем формат данных в результатах поиска
-      // Формат Nominatim API имеет прямые поля latitude и longitude
-      if (result.latitude !== undefined && result.longitude !== undefined) {
-        lat = result.latitude;
-        lng = result.longitude;
-      } else {
-        console.warn('Некорректный формат координат в результате поиска:', result);
-        return;
-      }
-      
-      // Проверяем валидность координат
-      if (isNaN(lat) || isNaN(lng) || lat === undefined || lng === undefined) {
-        console.warn('Некорректные координаты в результате поиска:', result);
-        return;
-      }
-    } catch (error) {
-      console.error('Ошибка при обработке координат результата поиска:', error);
-      return;
-    }
-    
-    // Сбрасываем поиск
+    // Очищаем интерфейс поиска сразу
     setSearchText('');
     setSearchResults([]);
     setIsSearchFocused(false);
-    
-    // Скрываем клавиатуру
     Keyboard.dismiss();
     
-    // Создаем объект с координатами в числовом формате
+    // Получаем координаты
+    const lat = typeof result.latitude === 'string' ? parseFloat(result.latitude) : result.latitude;
+    const lng = typeof result.longitude === 'string' ? parseFloat(result.longitude) : result.longitude;
+    
+    // Проверяем валидность координат
+    if (isNaN(lat) || isNaN(lng)) {
+      console.error('Некорректные координаты в результате:', result);
+      Alert.alert('Ошибка', 'Не удалось получить координаты выбранного места');
+      return;
+    }
+    
+    // Создаем объект с координатами
     const coordinate = {
       latitude: lat,
       longitude: lng
     };
     
-    console.log('Установка координат из результата поиска:', coordinate);
-    
-    // Устанавливаем выбранное место
-    setSelectedLocation(coordinate);
-    setSelectedPlaceInfo({
-      name: result.name || 'Выбранное место',
-      address: result.address || `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
-      distance: result.distance
-    });
+    console.log('Установка маркера по координатам:', coordinate);
     
     // Сброс маршрута если он был активен
     if (isRouting) {
       setIsRouting(false);
       setRouteDetails(null);
+      setAllRoutes({
+        DRIVING: null,
+        WALKING: null,
+        BICYCLING: null,
+        TRANSIT: null
+      });
     }
     
-    // Центрируем карту на выбранном месте
-    setRegion({
-      ...coordinate,
+    // Создаем информацию о выбранном месте
+    const placeInfo = {
+      name: result.name || 'Выбранное место',
+      address: result.address || `${lat.toFixed(6)}, ${lng.toFixed(6)}`,
+      distance: result.distance
+    };
+    
+    // Определяем новый регион для карты
+    const newRegion = {
+      latitude: lat,
+      longitude: lng,
       latitudeDelta: 0.01,
       longitudeDelta: 0.01
-    });
+    };
+    
+    // 1. Сначала устанавливаем регион напрямую
+    setRegion(newRegion);
+    
+    // 2. Затем устанавливаем выбранное место для маркера
+    setSelectedLocation(coordinate);
+    setSelectedPlaceInfo(placeInfo);
+    
+    // 3. Затем используем анимацию с небольшой задержкой
+    setTimeout(() => {
+      if (mapRef.current) {
+        try {
+          console.log('Анимация карты к результату поиска:', newRegion);
+          mapRef.current.animateToRegion(newRegion, 500);
+        } catch (e) {
+          console.error('Ошибка анимации карты:', e);
+        }
+      } else {
+        console.warn('mapRef недоступен для анимации');
+      }
+    }, 200);
   };
 
   // Функция расчета расстояния по формуле Гаверсинуса
@@ -618,43 +668,21 @@ const MapScreen = () => {
         </MapViewComponent>
 
         {/* Строка поиска */}
-        <SearchBar 
+        <SearchBar
           value={searchText}
-          onChangeText={(text) => {
-            setSearchText(text);
-            // Если строка поиска пуста, очищаем результаты
-            if (!text.trim()) {
-              setSearchResults([]);
-              if (searchTimerRef.current) {
-                clearTimeout(searchTimerRef.current);
-                searchTimerRef.current = null;
-              }
-            } 
-            // Если длина строки поиска достаточна, автоматически выполняем поиск
-            else if (text.trim().length >= 3) {
-              // Отменяем предыдущий таймер, если он есть
-              if (searchTimerRef.current) {
-                clearTimeout(searchTimerRef.current);
-              }
-              // Устанавливаем новый таймер (дебаунс 500мс)
-              searchTimerRef.current = setTimeout(() => {
-                handleSearch();
-                searchTimerRef.current = null;
-              }, 500);
-            }
-          }}
-          onSubmit={handleSearch}
+          onChangeText={handleSearchTextChange}
+          onSubmit={() => handleSearch()}
           onFocus={() => setIsSearchFocused(true)}
-          onBlur={() => setTimeout(() => setIsSearchFocused(false), 100)}
+          onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
           onClear={() => {
             setSearchText('');
             setSearchResults([]);
-            Keyboard.dismiss();
           }}
+          isLoading={isSearchLoading}
         />
 
         {/* Результаты поиска */}
-        <SearchResults 
+        <SearchResults
           results={searchResults}
           onSelectResult={handleSelectSearchResult}
           isVisible={isSearchFocused && searchResults.length > 0}
@@ -985,4 +1013,3 @@ const styles = StyleSheet.create({
 });
 
 export default MapScreen;
-
