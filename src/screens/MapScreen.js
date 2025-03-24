@@ -427,192 +427,22 @@ const MapScreen = () => {
     routesRequestedRef.current = false;
   };
 
-  // Обработчик изменения типа маршрута (автомобиль, пешком и т.д.)
-  const handleRouteTypeChange = (mode) => {
-    console.log(`🔄 Изменение типа маршрута на ${mode}`);
-    
-    // Устанавливаем текущий режим маршрута
-    setRouteMode(mode);
-    
-    // Очищаем текущий маршрут и показываем индикатор загрузки
-    setRouteDetails(null);
-    
-    // Устанавливаем загрузку для выбранного типа
-    setRoutesLoading(prev => ({
-      ...prev,
-      [mode]: true
-    }));
-    
-    // Проверяем, есть ли у нас уже данные для этого типа
-    if (allRoutes[mode] && allRoutes[mode].distance) {
-      // Проверяем, есть ли у нас координаты маршрута
-      if (allRoutes[mode].coordinates && allRoutes[mode].coordinates.length > 0) {
-        console.log(`✅ Используем существующий маршрут типа ${mode}`);
-        
-        // Если у нас есть полные данные маршрута, используем их
-        setRouteDetails(allRoutes[mode]);
-        setRoutesLoading(prev => ({
-          ...prev,
-          [mode]: false
-        }));
-        
-        // Подстраиваем карту под маршрут без задержки
-        if (allRoutes[mode].coordinates.length > 1 && mapRef.current) {
-          const padding = { top: 100, right: 50, bottom: 250, left: 50 };
-          mapRef.current.fitToCoordinates(allRoutes[mode].coordinates, { 
-            edgePadding: padding, 
-            animated: true 
-          });
-        }
-      } else {
-        console.log(`🔄 Запрашиваем координаты для маршрута типа ${mode}`);
-        
-        // У нас есть только базовая информация, запрашиваем полный маршрут
-        const origin = isReverseRoute ? selectedLocation : {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        };
-        
-        const destination = isReverseRoute ? {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-        } : selectedLocation;
-        
-        // Запрашиваем полный маршрут с координатами
-        fetchRouteDirections(origin, destination, [], getEffectiveMode(mode))
-          .then(result => {
-            if (result && result.coordinates && result.coordinates.length > 0) {
-              console.log(`✅ Получен полный маршрут типа ${mode}: ${result.coordinates.length} точек`);
-              
-              // Обновляем данные маршрута с полученными координатами
-              const updatedRoute = {
-                ...allRoutes[mode],
-                coordinates: result.coordinates,
-                // Обновляем расстояние и время, если они отличаются
-                distance: result.distance || allRoutes[mode].distance,
-                duration: result.duration || allRoutes[mode].duration,
-                isApproximate: result.isApproximate || allRoutes[mode].isApproximate,
-                mode
-              };
-              
-              // Обновляем состояние маршрутов
-              setAllRoutes(prev => ({
-                ...prev,
-                [mode]: updatedRoute
-              }));
-              
-              // Устанавливаем текущий маршрут
-              setRouteDetails(updatedRoute);
-              
-              // Подстраиваем карту под маршрут без задержки
-              if (result.coordinates.length > 1 && mapRef.current) {
-                const padding = { top: 100, right: 50, bottom: 250, left: 50 };
-                mapRef.current.fitToCoordinates(result.coordinates, { 
-                  edgePadding: padding, 
-                  animated: true 
-                });
-              }
-            } else {
-              console.warn(`⚠️ Некорректные данные маршрута для типа ${mode}`);
-            }
-            
-            // Завершаем загрузку
-            setRoutesLoading(prev => ({
-              ...prev,
-              [mode]: false
-            }));
-          })
-          .catch(error => {
-            console.error(`🔴 Ошибка при запросе полного маршрута типа ${mode}:`, error);
-            setRoutesLoading(prev => ({
-              ...prev,
-              [mode]: false
-            }));
-          });
-      }
-    } else {
-      console.log(`🔄 Запрашиваем новый маршрут типа ${mode}`);
-      
-      // У нас нет данных для этого типа, запрашиваем новый маршрут
-      const origin = isReverseRoute ? selectedLocation : {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      };
-      
-      const destination = isReverseRoute ? {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      } : selectedLocation;
-      
-      // Запрашиваем новый маршрут
-      fetchRouteDirections(origin, destination, [], getEffectiveMode(mode))
-        .then(result => {
-          if (result && result.coordinates && result.coordinates.length > 0) {
-            console.log(`✅ Получен новый маршрут типа ${mode}: ${result.coordinates.length} точек`);
-            
-            // Создаем новый маршрут
-            const newRoute = {
-              distance: result.distance,
-              duration: result.duration,
-              isApproximate: result.isApproximate || false,
-              coordinates: result.coordinates,
-              mode
-            };
-            
-            // Обновляем состояние маршрутов
-            setAllRoutes(prev => ({
-              ...prev,
-              [mode]: newRoute
-            }));
-            
-            // Устанавливаем текущий маршрут
-            setRouteDetails(newRoute);
-            
-            // Подстраиваем карту под маршрут без задержки
-            if (result.coordinates.length > 1 && mapRef.current) {
-              const padding = { top: 100, right: 50, bottom: 250, left: 50 };
-              mapRef.current.fitToCoordinates(result.coordinates, { 
-                edgePadding: padding, 
-                animated: true 
-              });
-            }
-          } else {
-            console.warn(`⚠️ Некорректные данные маршрута для типа ${mode}`);
-          }
-          
-          // Завершаем загрузку
-          setRoutesLoading(prev => ({
-            ...prev,
-            [mode]: false
-          }));
-        })
-        .catch(error => {
-          console.error(`🔴 Ошибка при запросе нового маршрута типа ${mode}:`, error);
-          setRoutesLoading(prev => ({
-            ...prev,
-            [mode]: false
-          }));
-        });
-    }
-  };
-
-  // Вспомогательная функция для преобразования режима маршрута
+  // Функция для получения фактического режима API в зависимости от типа
   const getEffectiveMode = (mode) => {
-    // Преобразуем режим в формат, который понимает API
     switch (mode) {
       case 'WALKING':
-        return 'walking';
+        return 'WALKING';
       case 'BICYCLING':
-        return 'cycling';
+        return 'BICYCLING';
       case 'TRANSIT':
-        return 'transit';
+        return 'TRANSIT';
       case 'DRIVING':
       default:
-        return 'driving';
+        return 'DRIVING';
     }
   };
 
-  // Преобразование режима маршрута в тип транспорта для панели маршрута
+  // Функция для получения типа транспорта из режима API
   const getTransportTypeFromMode = (mode) => {
     switch (mode) {
       case 'WALKING':
@@ -627,15 +457,7 @@ const MapScreen = () => {
     }
   };
 
-  // Обработчик голосового поиска
-  const handleVoiceSearch = () => {
-    Alert.alert(
-      "Голосовой поиск",
-      "Функция голосового поиска будет доступна в следующей версии приложения"
-    );
-  };
-
-  // Обработчик готовности маршрута
+  // Обработчик готовности маршрута - вызывается один раз при первом построении
   const handleRouteReady = (routeData) => {
     if (!routeData || !routeData.coordinates || routeData.coordinates.length === 0) {
       console.warn('Получены некорректные данные маршрута');
@@ -644,7 +466,7 @@ const MapScreen = () => {
     
     console.log(`🚗 Маршрут готов: ${routeData.distance.toFixed(1)} км, ${Math.round(routeData.duration)} мин`);
     
-    // Сохраняем детали маршрута
+    // Сохраняем детали маршрута текущего типа
     setRouteDetails(routeData);
     
     // Сохраняем маршрут в общем состоянии
@@ -659,35 +481,31 @@ const MapScreen = () => {
       [routeMode]: false
     }));
     
-    // Подстраиваем карту под маршрут с хорошими отступами
-    if (routeData.coordinates.length > 1) {
-      setTimeout(() => {
-        if (mapRef.current) {
-          const padding = { 
-            top: 100, 
-            right: 50, 
-            bottom: 250, 
-            left: 50 
-          };
-          
-          console.log('🗺️ Подстраиваю карту под маршрут:', routeData.coordinates.length, 'точек');
-          mapRef.current.fitToCoordinates(routeData.coordinates, { 
-            edgePadding: padding, 
-            animated: true 
-          });
-        }
-      }, 500); // Небольшая задержка для гарантии выполнения
+    // Подстраиваем карту под маршрут с отступами
+    if (routeData.coordinates.length > 1 && mapRef.current) {
+      const padding = { 
+        top: 100, 
+        right: 50, 
+        bottom: 250, 
+        left: 50 
+      };
+      
+      console.log('🗺️ Подстраиваю карту под маршрут:', routeData.coordinates.length, 'точек');
+      mapRef.current.fitToCoordinates(routeData.coordinates, { 
+        edgePadding: padding, 
+        animated: true 
+      });
     }
     
-    // При первом получении маршрута, запрашиваем все остальные типы
+    // Запрашиваем остальные типы маршрутов только один раз
     if (!routesRequestedRef.current) {
       routesRequestedRef.current = true;
-      requestAllRouteTypes(routeData);
+      requestAllRouteTypes();
     }
   };
 
-  // Функция для запроса всех типов маршрутов
-  const requestAllRouteTypes = (initialResult) => {
+  // Функция для запроса всех типов маршрутов (только раз)
+  const requestAllRouteTypes = () => {
     // Получаем параметры маршрута
     const origin = isReverseRoute ? selectedLocation : {
       latitude: location.coords.latitude,
@@ -699,87 +517,119 @@ const MapScreen = () => {
       longitude: location.coords.longitude,
     } : selectedLocation;
     
-    // Массив всех типов маршрутов
-    const allTypes = ['DRIVING', 'WALKING', 'BICYCLING', 'TRANSIT'];
-    const currentType = initialResult.mode || routeMode;
+    // Массив типов, которые нужно запросить
+    const typesToRequest = ['DRIVING', 'WALKING', 'BICYCLING', 'TRANSIT'].filter(
+      type => type !== routeMode // Исключаем текущий тип, который уже запрошен
+    );
     
-    // Отфильтровываем текущий тип, который уже запрошен
-    const typesToRequest = allTypes.filter(type => type !== currentType);
-    let remainingRequests = typesToRequest.length;
+    console.log(`🚀 Запрашиваю остальные типы маршрутов: ${typesToRequest.join(', ')}`);
     
-    console.log(`🚀 Запрашиваю маршруты для типов: ${typesToRequest.join(', ')}`);
+    // Устанавливаем индикаторы загрузки
+    const newLoadingState = {...routesLoading};
+    typesToRequest.forEach(type => {
+      newLoadingState[type] = true;
+    });
+    setRoutesLoading(newLoadingState);
     
-    // Последовательно запрашиваем все типы с задержкой
-    const requestNextType = (index = 0) => {
-      if (index >= typesToRequest.length) {
-        console.log('✅ Все маршруты запрошены');
-        return;
-      }
-      
-      const type = typesToRequest[index];
-      console.log(`🔄 Запрашиваю маршрут типа: ${type}`);
-      
-      // Устанавливаем индикатор загрузки
-      setRoutesLoading(prev => ({
-        ...prev,
-        [type]: true
-      }));
-      
-      // Преобразуем режим для API
-      const effectiveMode = getEffectiveMode(type);
-      
-      // Запрашиваем маршрут
-      fetchRouteDirections(origin, destination, [], effectiveMode)
+    // Запрашиваем все типы параллельно
+    typesToRequest.forEach(type => {
+      fetchRouteDirections(origin, destination, [], type)
         .then(result => {
-          if (result && result.distance && typeof result.duration === 'number') {
+          if (result && result.coordinates && result.coordinates.length > 0) {
             console.log(`✅ Получен маршрут типа ${type}: ${result.distance.toFixed(1)} км, ${Math.round(result.duration)} мин`);
             
-            // Сохраняем только ключевую информацию, без координат для экономии памяти
-            // Координаты будут запрошены при выборе этого типа
+            // Сохраняем маршрут
             setAllRoutes(prev => ({
               ...prev,
-              [type]: {
-                distance: result.distance,
-                duration: result.duration,
-                isApproximate: result.isApproximate || false,
-                coordinates: [], // Пустой массив вместо полного списка координат
-                mode: type
-              }
+              [type]: result
             }));
-          } else {
-            console.warn(`⚠️ Некорректные данные маршрута для типа ${type}`);
           }
           
-          // Завершаем загрузку
+          // Сбрасываем индикатор загрузки в любом случае
           setRoutesLoading(prev => ({
             ...prev,
             [type]: false
           }));
-          
-          // Задержка перед следующим запросом (только для фонового запроса всех маршрутов)
-          // При явном переключении пользователем типа маршрута - запрос без задержки
-          setTimeout(() => {
-            requestNextType(index + 1);
-          }, 1000); // 1 секунда между запросами
         })
         .catch(error => {
           console.error(`🔴 Ошибка при запросе маршрута типа ${type}:`, error);
-          
-          // Устанавливаем ошибку для данного типа
           setRoutesLoading(prev => ({
             ...prev,
             [type]: false
           }));
-          
-          // Переходим к следующему, даже при ошибке
-          setTimeout(() => {
-            requestNextType(index + 1);
-          }, 1000);
         });
-    };
+    });
+  };
+
+  // Обработчик изменения типа маршрута (просто переключение без запросов)
+  const handleRouteTypeChange = (mode) => {
+    console.log(`🔄 Переключение на тип маршрута: ${mode}`);
     
-    // Начинаем последовательные запросы
-    requestNextType(0);
+    // Меняем активный режим
+    setRouteMode(mode);
+    
+    // Если у нас уже есть данные этого типа, просто показываем их
+    if (allRoutes[mode]) {
+      console.log(`✅ Показываем существующий маршрут типа ${mode}`);
+      setRouteDetails(allRoutes[mode]);
+      
+      // Подстраиваем карту
+      if (allRoutes[mode].coordinates && 
+          allRoutes[mode].coordinates.length > 0 && 
+          mapRef.current) {
+        const padding = { top: 100, right: 50, bottom: 250, left: 50 };
+        mapRef.current.fitToCoordinates(allRoutes[mode].coordinates, { 
+          edgePadding: padding, 
+          animated: true 
+        });
+      }
+    } else {
+      // Если данных нет, показываем загрузку и запрашиваем
+      console.log(`⚠️ Нет данных для типа ${mode}, запрашиваем`);
+      setRouteDetails(null);
+      setRoutesLoading(prev => ({ ...prev, [mode]: true }));
+      
+      const origin = isReverseRoute ? selectedLocation : {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      };
+      
+      const destination = isReverseRoute ? {
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+      } : selectedLocation;
+      
+      fetchRouteDirections(origin, destination, [], mode)
+        .then(result => {
+          if (result && result.coordinates) {
+            // Обновляем состояние только если не было отмены
+            setAllRoutes(prev => ({ ...prev, [mode]: result }));
+            setRouteDetails(result);
+            
+            // Подстраиваем карту под маршрут
+            if (mapRef.current && result.coordinates.length > 0) {
+              const padding = { top: 100, right: 50, bottom: 250, left: 50 };
+              mapRef.current.fitToCoordinates(result.coordinates, { 
+                edgePadding: padding, 
+                animated: true 
+              });
+            }
+          }
+          setRoutesLoading(prev => ({ ...prev, [mode]: false }));
+        })
+        .catch(error => {
+          console.error(`🔴 Ошибка при запросе маршрута типа ${mode}:`, error);
+          setRoutesLoading(prev => ({ ...prev, [mode]: false }));
+        });
+    }
+  };
+
+  // Обработчик голосового поиска
+  const handleVoiceSearch = () => {
+    Alert.alert(
+      "Голосовой поиск",
+      "Функция голосового поиска будет доступна в следующей версии приложения"
+    );
   };
 
   // Эффект для очистки

@@ -198,28 +198,31 @@ const RouteDirections = ({
     }
   }, [mode]);
   
+  // Функция для определения реального режима маршрута в зависимости от API
+  const getEffectiveMode = (mode) => {
+    // В нашем API теперь принимаются режимы в формате 'DRIVING', 'WALKING', 'BICYCLING', 'TRANSIT'
+    // а не 'driving', 'walking', и т.д.
+    switch (mode) {
+      case 'walking':
+      case 'foot':
+        return 'WALKING';
+      case 'cycling':
+      case 'bike':
+      case 'bicycle':
+        return 'BICYCLING';
+      case 'transit':
+      case 'public_transport':
+        return 'TRANSIT';
+      case 'driving':
+      case 'car':
+      default:
+        return 'DRIVING';
+    }
+  };
+  
   // Используем useCallback для предотвращения лишних перерисовок
   const fetchRoute = useCallback(async (signal) => {
     try {
-      // Проверяем прошло ли минимальное время с последнего запроса
-      const now = Date.now();
-      const timeSinceLastFetch = now - lastFetchTimeRef.current;
-      
-      // Если запрос идет от смены пользователем типа маршрута, 
-      // то не проверяем время с последнего запроса
-      const isUserInitiatedRequest = lastRequestParamsRef.current === '';
-      
-      // Минимальный интервал между автоматическими запросами
-      const minFetchInterval = mode === 'DRIVING' ? 5000 : 10000; // 5 или 10 секунд
-      
-      // Пропускаем проверку времени если это запрос инициированный пользователем
-      if (!isUserInitiatedRequest && timeSinceLastFetch < minFetchInterval && lastFetchTimeRef.current > 0) {
-        console.log(`RouteDirections: слишком частый запрос, пропускаем (прошло ${timeSinceLastFetch}мс из ${minFetchInterval}мс)`);
-        return;
-      }
-      
-      lastFetchTimeRef.current = now;
-      
       console.log(`RouteDirections: запрашиваем маршрут для режима: ${mode}`);
       
       // Проверяем валидность точек маршрута
@@ -254,7 +257,6 @@ const RouteDirections = ({
         
         // Но всё же отправляем существующие данные в колбэк, если это первый запрос
         if (!initialFetchDoneRef.current && onRouteReady && routeInfo) {
-          console.log('RouteDirections: отправляем существующие данные в колбэк (первое построение)');
           onRouteReady({
             coordinates: coordinates,
             distance: routeInfo.distance,
@@ -267,58 +269,77 @@ const RouteDirections = ({
         return;
       }
       
-      // Если запрос отличается от предыдущего, запоминаем его параметры
+      // Обновляем параметры последнего запроса
       lastRequestParamsRef.current = requestParams;
       routeFetchedRef.current = false;
+      
+      // Если у нас уже есть запрос в процессе, отменяем его
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      
+      // Создаём новый контроллер для возможности отмены
+      abortControllerRef.current = new AbortController();
+      const localSignal = signal || abortControllerRef.current.signal;
       
       // Используем реальный режим для API
       const effectiveMode = getEffectiveMode(mode);
       
+      console.log(`RouteDirections: запрашиваем API маршрут для режима ${effectiveMode}`);
+      
       // Получаем данные маршрута из API
-      const result = await fetchRouteDirections(
-        origin,
-        destination,
-        waypoints,
-        effectiveMode,
-        signal
-      );
-      
-      // Проверяем что компонент все еще смонтирован
-      if (!isMountedRef.current) return;
-      
-      // Проверяем результат
-      if (result && result.coordinates && result.coordinates.length > 0) {
-        console.log(`RouteDirections: получен маршрут: ${result.distance.toFixed(1)} км, ${Math.round(result.duration)} мин, координат: ${result.coordinates.length}`);
+      try {
+        const result = await fetchRouteDirections(
+          origin,
+          destination,
+          waypoints,
+          effectiveMode,
+          localSignal
+        );
         
-        setCoordinates(result.coordinates);
-        setRouteInfo({
-          distance: result.distance,
-          duration: result.duration,
-          isApproximate: result.isApproximate || false
-        });
+        // Проверяем что компонент все еще смонтирован
+        if (!isMountedRef.current) return;
         
-        if (onRouteReady) {
-          console.log(`RouteDirections: отправляем данные маршрута в колбэк`);
-          onRouteReady({
-            coordinates: result.coordinates,
+        // Проверяем результат
+        if (result && result.coordinates && result.coordinates.length > 0) {
+          console.log(`RouteDirections: получен маршрут: ${result.distance.toFixed(1)} км, ${Math.round(result.duration)} мин, координат: ${result.coordinates.length}`);
+          
+          setCoordinates(result.coordinates);
+          setRouteInfo({
             distance: result.distance,
             duration: result.duration,
-            isApproximate: result.isApproximate || false,
-            mode: mode
+            isApproximate: result.isApproximate || false
           });
-          initialFetchDoneRef.current = true;
+          
+          if (onRouteReady) {
+            console.log(`RouteDirections: отправляем данные маршрута в колбэк`);
+            onRouteReady({
+              coordinates: result.coordinates,
+              distance: result.distance,
+              duration: result.duration,
+              isApproximate: result.isApproximate || false,
+              mode: mode
+            });
+            initialFetchDoneRef.current = true;
+          }
+          
+          routeFetchedRef.current = true;
+        } else {
+          console.error('RouteDirections: нет данных для построения маршрута');
+          handleFallbackRoute();
         }
+      } catch (error) {
+        // Проверяем что компонент все еще смонтирован
+        if (!isMountedRef.current) return;
         
-        routeFetchedRef.current = true;
-      } else {
-        console.error('RouteDirections: нет данных для построения маршрута');
+        console.error('RouteDirections: ошибка при получении маршрута:', error);
         handleFallbackRoute();
       }
     } catch (error) {
       // Проверяем что компонент все еще смонтирован
       if (!isMountedRef.current) return;
       
-      console.error('RouteDirections: ошибка при получении маршрута:', error);
+      console.error('RouteDirections: общая ошибка:', error);
       handleFallbackRoute();
     }
   }, [origin, destination, waypoints, mode, onRouteReady]);
@@ -380,6 +401,9 @@ const RouteDirections = ({
 
   // Эффект для запроса маршрута при изменении параметров
   useEffect(() => {
+    // Проверяем, что компонент смонтирован
+    isMountedRef.current = true;
+    
     // Проверяем, что начальная и конечная точки существуют и не совпадают
     if (!origin || !destination ||
         (origin.latitude === destination.latitude && 
@@ -399,69 +423,89 @@ const RouteDirections = ({
       return;
     }
     
-    console.log(`RouteDirections: изменились параметры маршрута, будем запрашивать для режима ${mode}`);
-    initialFetchDoneRef.current = false;
+    // Формируем строку с параметрами запроса для сравнения
+    const requestParams = JSON.stringify({
+      originLat: origin.latitude.toFixed(6),
+      originLng: origin.longitude.toFixed(6),
+      destLat: destination.latitude.toFixed(6),
+      destLng: destination.longitude.toFixed(6),
+      mode: mode,
+    });
+    
+    // Если мы уже запрашивали эти же параметры и получили результат, не делаем новый запрос
+    if (routeFetchedRef.current && requestParams === lastRequestParamsRef.current) {
+      console.log('RouteDirections: пропускаем повторный запрос с теми же параметрами');
+      return;
+    }
+    
+    // Обновляем параметры последнего запроса
+    lastRequestParamsRef.current = requestParams;
+    
+    console.log(`RouteDirections: запрашиваем маршрут для режима ${mode}`);
     
     // Отменяем предыдущий запрос если он есть
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
     
-    // Очищаем предыдущий таймер
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-    }
-    
     // Создаем новый контроллер отмены
     abortControllerRef.current = new AbortController();
     
-    // Проверяем прошло ли минимальное время с последнего запроса
-    const now = Date.now();
-    const timeSinceLastFetch = now - lastFetchTimeRef.current;
-    const minFetchInterval = mode === 'DRIVING' ? 5000 : 10000; // 5 или 10 секунд
+    // Запрашиваем маршрут
+    fetchRouteDirections(origin, destination, waypoints, mode, abortControllerRef.current.signal)
+      .then(result => {
+        // Проверяем что компонент все еще смонтирован
+        if (!isMountedRef.current) return;
+        
+        // Проверяем результат
+        if (result && result.coordinates && result.coordinates.length > 0) {
+          console.log(`RouteDirections: получен маршрут для режима ${mode}: ${result.coordinates.length} точек`);
+          
+          // Устанавливаем флаг успешного получения маршрута
+          routeFetchedRef.current = true;
+          
+          setCoordinates(result.coordinates);
+          setRouteInfo({
+            distance: result.distance,
+            duration: result.duration,
+            isApproximate: result.isApproximate || false
+          });
+          
+          if (onRouteReady) {
+            onRouteReady({
+              coordinates: result.coordinates,
+              distance: result.distance,
+              duration: result.duration,
+              isApproximate: result.isApproximate || false,
+              mode: mode
+            });
+          }
+        } else {
+          console.log('RouteDirections: получен пустой результат');
+          handleFallbackRoute();
+        }
+      })
+      .catch(error => {
+        // Проверяем что компонент все еще смонтирован
+        if (!isMountedRef.current) return;
+        
+        if (error.name !== 'AbortError') {
+          console.error('RouteDirections: ошибка при получении маршрута:', error);
+          handleFallbackRoute();
+        }
+      });
     
-    let delay;
-    if (lastFetchTimeRef.current === 0) {
-      // Первый запрос - делаем с небольшой задержкой
-      delay = 500;
-    } else if (timeSinceLastFetch < minFetchInterval) {
-      // Если запрос был недавно, ждем до истечения минимального интервала
-      delay = minFetchInterval - timeSinceLastFetch;
-    } else {
-      // Прошло достаточно времени - делаем минимальную задержку
-      delay = 500;
-    }
-    
-    console.log(`RouteDirections: режим ${mode}, запрашиваем маршрут с задержкой ${delay}мс`);
-    timerRef.current = setTimeout(() => {
-      fetchRoute(abortControllerRef.current.signal);
-    }, delay);
-    
+    // Очистка при размонтировании
     return () => {
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-      }
+      isMountedRef.current = false;
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+      }
     };
-  }, [origin, destination, mode, fetchRoute]);
-  
-  // Функция для определения реального режима маршрута в зависимости от API
-  const getEffectiveMode = (mode) => {
-    // Преобразуем режим в формат, который понимает API
-    switch (mode) {
-      case 'WALKING':
-        return 'walking';
-      case 'BICYCLING':
-        return 'cycling';
-      case 'TRANSIT':
-        return 'transit';
-      case 'DRIVING':
-      default:
-        return 'driving';
-    }
-  };
+  }, [origin, destination, mode, waypoints]);
   
   // Расчет прямого расстояния между двумя точками (формула Haversine)
   const calculateDirectDistance = (pointA, pointB) => {

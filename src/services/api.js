@@ -1,5 +1,6 @@
 // API сервисы для MapEase
 import axios from 'axios';
+import { OPEN_ROUTE_SERVICE_API_KEY } from '../constants/apiKeys';
 
 // Базовый URL для Nominatim API (OpenStreetMap)
 const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
@@ -316,264 +317,223 @@ export const reverseGeocode = async (latitude, longitude) => {
  * @param {Boolean} timeOnly - Запрашивать только время без полных координат маршрута
  * @returns {Promise<Object>} - Промис с данными маршрута
  */
-export const fetchRouteDirections = async (origin, destination, waypoints = [], mode = 'driving', signal, timeOnly = false) => {
+export const fetchRouteDirections = async (
+  origin,
+  destination,
+  waypoints = [],
+  mode = 'DRIVING',
+  signal
+) => {
   try {
-    // Преобразуем точки маршрута в массив координат
-    const points = [
+    console.log(`API: Запрос маршрута ${mode} от (${origin.latitude.toFixed(5)}, ${origin.longitude.toFixed(5)}) до (${destination.latitude.toFixed(5)}, ${destination.longitude.toFixed(5)})`);
+    
+    // Проверяем корректность входных данных
+    if (!origin || !destination || !origin.latitude || !origin.longitude || !destination.latitude || !destination.longitude) {
+      console.error('API: Некорректные координаты для запроса маршрута');
+      return createFallbackRoute(origin, destination, mode);
+    }
+
+    // Проверяем наличие API ключа
+    if (!OPEN_ROUTE_SERVICE_API_KEY) {
+      console.error('API: Отсутствует ключ для OpenRouteService API');
+      return createFallbackRoute(origin, destination, mode);
+    }
+
+    // Проверяем совпадение координат начала и конца
+    if (origin.latitude === destination.latitude && origin.longitude === destination.longitude) {
+      console.log('API: Начальная и конечная точки совпадают, возвращаем пустой маршрут');
+      return {
+        coordinates: [],
+        distance: 0,
+        duration: 0,
+        isApproximate: true,
+        mode
+      };
+    }
+
+    // Преобразуем режим в понятный для API формат
+    let apiMode;
+    switch (mode) {
+      case 'WALKING':
+        apiMode = 'foot-walking';
+        break;
+      case 'BICYCLING':
+        apiMode = 'cycling-regular';
+        break;
+      case 'TRANSIT':
+        apiMode = 'driving-car'; // Меняем на driving-car, так как driving-bus не работает
+        break;
+      case 'DRIVING':
+      default:
+        apiMode = 'driving-car';
+    }
+
+    // URL для запроса
+    const url = `https://api.openrouteservice.org/v2/directions/${apiMode}/geojson`;
+    
+    // Формируем координаты в формате [longitude, latitude]
+    const coordinates = [
       [origin.longitude, origin.latitude],
-      ...(waypoints.map(wp => [wp.longitude, wp.latitude]) || []),
+      ...waypoints.map(wp => [wp.longitude, wp.latitude]),
       [destination.longitude, destination.latitude]
     ];
     
-    // Определяем профиль маршрута в зависимости от режима
-    let profile;
-    switch (mode) {
-      case 'walking':
-        profile = 'foot';
-        break;
-      case 'cycling':
-        profile = 'bike';
-        break;
-      case 'transit':
-        profile = 'public_transport';
-        break;
-      case 'driving':
-      default:
-        profile = 'car';
-        break;
-    }
-    
-    console.log(`API запрос маршрута: режим ${mode}, профиль ${profile}${timeOnly ? ', только время' : ''}`);
-    
-    // Если нужно только время, используем минимальный набор параметров
-    const parameters = timeOnly
-      ? {
-          overview: 'false', // Без общего обзора
-          steps: false,      // Без шагов
-          alternatives: false  // Без альтернативных маршрутов
-        }
-      : {
-          overview: 'full',    // Полный обзор
-          geometries: 'geojson',
-          steps: true,        // С подробными шагами
-          alternatives: mode === 'walking' || mode === 'driving' // Альтернативы только для ходьбы и авто
-        };
-    
-    // Формируем URL запроса
+    // Параметры запроса в формате JSON
     const requestBody = {
-      coordinates: points,
-      ...parameters
+      coordinates: coordinates,
+      preference: mode === 'DRIVING' ? 'fastest' : 'recommended',
+      units: 'km',
+      language: 'ru-RU',
+      instructions: false
     };
+
+    console.log(`API: Отправка запроса для режима: ${apiMode}`);
     
-    // Запрашиваем маршрут
-    const response = await fetch(`https://routing.openstreetmap.de/routed-${profile}/route/v1/driving/${points.map(p => p.join(',')).join(';')}?overview=full&geometries=geojson&steps=true&alternatives=${parameters.alternatives}`, {
-      method: 'GET',
-      signal
+    // Делаем запрос с ограничением по времени
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 секунд таймаут
+    
+    const localSignal = signal || controller.signal;
+    
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png',
+        'Authorization': OPEN_ROUTE_SERVICE_API_KEY
+      },
+      body: JSON.stringify(requestBody),
+      signal: localSignal
     });
     
+    clearTimeout(timeoutId);
+    
     if (!response.ok) {
-      throw new Error(`Ошибка запроса маршрута: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`API: Ошибка запроса маршрута ${mode}: ${response.status}`, errorText);
+      return createFallbackRoute(origin, destination, mode);
     }
     
-    const responseData = await response.json();
+    const data = await response.json();
+    console.log(`API: Получен ответ от сервера для маршрута ${mode}`);
     
-    // Проверяем наличие маршрутов в ответе
-    if (!responseData.routes || responseData.routes.length === 0) {
-      throw new Error('Нет доступных маршрутов');
-    }
-    
-    // Выбираем лучший маршрут (для режима "пешком" выбираем самый короткий)
-    let bestRoute;
-    if (mode === 'walking' && responseData.routes.length > 1) {
-      // Для пешеходов приоритет - кратчайший маршрут
-      bestRoute = responseData.routes.reduce((prev, current) => 
-        (prev.distance < current.distance) ? prev : current
-      );
-    } else {
-      // Для остальных берем первый маршрут (обычно оптимальный)
-      bestRoute = responseData.routes[0];
-    }
-    
-    // Если запрос только на время, возвращаем минимальный набор данных
-    if (timeOnly) {
-      return {
-        distance: bestRoute.distance / 1000, // метры в километры
-        duration: bestRoute.duration / 60,   // секунды в минуты
-        coordinates: [],  // Пустой массив координат
-        isApproximate: false
-      };
-    }
-    
-    // Получаем координаты из геометрии маршрута
-    const { coordinates } = bestRoute.geometry;
-    
-    // Проверяем наличие координат
-    if (!coordinates || coordinates.length < 2) {
-      throw new Error('Маршрут не содержит достаточно координат');
-    }
-    
-    // Создаем массив точек в формате {latitude, longitude}
-    const routeCoordinates = coordinates.map(coord => ({
-      latitude: coord[1],
-      longitude: coord[0]
-    }));
-    
-    // Проверяем общую длину маршрута
-    // Если маршрут слишком длинный относительно прямого расстояния (для пешеходов),
-    // это может означать проблемы с данными OSM
-    if (mode === 'walking') {
-      const directDistance = calculateDirectDistance(origin, destination);
-      const routeDistance = bestRoute.distance / 1000; // конвертируем в км
+    // Извлекаем необходимые данные из ответа
+    if (data && data.features && data.features.length > 0) {
+      const route = data.features[0];
       
-      // Если маршрут в 1.7 раза длиннее прямого пути, оптимизируем его
-      if (routeDistance > directDistance * 1.7) {
-        console.log(`API: пешеходный маршрут слишком длинный (${routeDistance.toFixed(1)}км vs ${directDistance.toFixed(1)}км прямого). Оптимизация.`);
-        const optimizedRoute = optimizePedestrianRoute(origin, destination, routeCoordinates);
-        
-        return {
-          coordinates: optimizedRoute,
-          distance: directDistance * 1.3, // примерно 30% добавляем для реалистичности
-          duration: (directDistance * 1.3) / 5 * 60, // среднее время ходьбы (5 км/ч)
-          isApproximate: true
-        };
+      // Проверяем наличие геометрии
+      if (!route.geometry || !route.geometry.coordinates || !Array.isArray(route.geometry.coordinates) || route.geometry.coordinates.length === 0) {
+        console.error('API: Маршрут не содержит координат');
+        return createFallbackRoute(origin, destination, mode);
       }
+      
+      // Получаем дистанцию маршрута в километрах и время в минутах
+      let distance = 0;
+      let duration = 0;
+      
+      if (route.properties && route.properties.summary) {
+        distance = route.properties.summary.distance; 
+        duration = route.properties.summary.duration / 60;
+      } else {
+        // Если нет summary, рассчитываем приблизительное расстояние
+        distance = calculateDistance(
+          origin.latitude, origin.longitude,
+          destination.latitude, destination.longitude
+        );
+        
+        // Приблизительное время исходя из скорости зависит от типа маршрута
+        const speeds = {
+          'DRIVING': 50, // км/ч
+          'BICYCLING': 15,
+          'WALKING': 5,
+          'TRANSIT': 30
+        };
+        duration = (distance / speeds[mode]) * 60;
+      }
+      
+      // Преобразуем координаты маршрута
+      const coordinates = route.geometry.coordinates.map(coord => ({
+        latitude: coord[1],
+        longitude: coord[0]
+      }));
+      
+      console.log(`API: Маршрут ${mode} получен успешно: ${coordinates.length} точек, ${distance.toFixed(1)} км, ${Math.round(duration)} мин`);
+      
+      return {
+        coordinates,
+        distance,
+        duration,
+        isApproximate: false,
+        mode
+      };
+    } else {
+      console.error('API: Ответ сервера не содержит нужных данных для маршрута');
+      return createFallbackRoute(origin, destination, mode);
     }
     
-    return {
-      coordinates: routeCoordinates,
-      distance: bestRoute.distance / 1000, // метры в километры
-      duration: bestRoute.duration / 60,   // секунды в минуты
-      isApproximate: false,
-      mode: mode
-    };
   } catch (error) {
-    console.error('Ошибка при получении маршрута:', error);
+    // Проверяем, была ли отмена запроса
+    if (error.name === 'AbortError') {
+      console.log('API: Запрос маршрута был отменен');
+    } else {
+      console.error(`API: Ошибка запроса маршрута ${mode}:`, error);
+    }
     
-    // Создаем резервный маршрут напрямую
+    // Вместо выбрасывания исключения, возвращаем резервный маршрут
     return createFallbackRoute(origin, destination, mode);
   }
 };
 
-// Создание запасного маршрута по прямой линии
+// Функция для создания запасного маршрута по прямой
 const createFallbackRoute = (origin, destination, mode) => {
   console.log('Создаем запасной маршрут по прямой');
   
-  // Рассчитываем прямое расстояние между точками
-  const distance = calculateDirectDistance(
+  if (!origin || !destination) {
+    return {
+      coordinates: [],
+      distance: 0,
+      duration: 0,
+      isApproximate: true,
+      mode
+    };
+  }
+  
+  // Создаем прямую линию с несколькими промежуточными точками
+  const numPoints = 5;
+  const coordinates = [];
+  
+  for (let i = 0; i <= numPoints; i++) {
+    const fraction = i / numPoints;
+    coordinates.push({
+      latitude: origin.latitude + fraction * (destination.latitude - origin.latitude),
+      longitude: origin.longitude + fraction * (destination.longitude - origin.longitude)
+    });
+  }
+  
+  // Рассчитываем примерное расстояние по прямой
+  const distance = calculateDistance(
     origin.latitude, origin.longitude,
     destination.latitude, destination.longitude
   );
   
-  // Рассчитываем примерное время в зависимости от режима
-  let duration;
-  let isApproximate = true;
+  // Примерное время в минутах зависит от типа транспорта
+  const speeds = {
+    'DRIVING': 50, // км/ч
+    'BICYCLING': 15,
+    'WALKING': 5,
+    'TRANSIT': 30
+  };
   
-  switch (mode) {
-    case 'walking':
-      // Средняя скорость ходьбы 5 км/ч
-      duration = (distance / 5) * 60;
-      break;
-    case 'cycling':
-      // Средняя скорость велосипеда 15 км/ч
-      duration = (distance / 15) * 60;
-      break;
-    case 'transit':
-      // Среднее для общественного транспорта 25 км/ч + время ожидания
-      duration = (distance / 25) * 60 + 10;
-      break;
-    case 'driving':
-    default:
-      // Средняя скорость автомобиля 40 км/ч
-      duration = (distance / 40) * 60;
-      // Минимум 5 минут для авто
-      if (duration < 5) duration = 5;
-  }
-  
-  // Создаем координаты маршрута - прямая линия между точками
-  // Для реалистичности добавляем несколько промежуточных точек
-  const coordinates = [origin];
-  
-  // Добавляем промежуточные точки
-  const numPoints = Math.max(2, Math.min(10, Math.ceil(distance * 5)));
-  for (let i = 1; i < numPoints; i++) {
-    const ratio = i / numPoints;
-    
-    const lat = origin.latitude + (destination.latitude - origin.latitude) * ratio;
-    const lng = origin.longitude + (destination.longitude - origin.longitude) * ratio;
-    
-    coordinates.push({ latitude: lat, longitude: lng });
-  }
-  
-  coordinates.push(destination);
+  const speed = speeds[mode] || 50;
+  const duration = (distance / speed) * 60; // минуты
   
   return {
     coordinates,
     distance,
     duration,
-    isApproximate
+    isApproximate: true,
+    mode
   };
-};
-
-// Оптимизация пешеходного маршрута
-const optimizePedestrianRoute = (origin, destination, routeCoordinates) => {
-  console.log('Оптимизация пешеходного маршрута');
-  
-  // Если маршрут слишком длинный, пробуем создать более прямой путь
-  const directDistance = calculateDirectDistance(
-    origin.latitude, origin.longitude,
-    destination.latitude, destination.longitude
-  );
-  
-  // Приоритет отдаем началу и концу существующего маршрута
-  const optimizedRoute = [routeCoordinates[0]];
-  
-  // Добавляем точки по прямой линии между началом и концом
-  const numPoints = Math.min(10, Math.max(5, Math.ceil(directDistance * 2)));
-  
-  for (let i = 1; i < numPoints; i++) {
-    const ratio = i / numPoints;
-    
-    // Интерполируем между начальной и конечной точкой
-    const lat = origin.latitude + (destination.latitude - origin.latitude) * ratio;
-    const lng = origin.longitude + (destination.longitude - origin.longitude) * ratio;
-    
-    optimizedRoute.push({ latitude: lat, longitude: lng });
-  }
-  
-  // Добавляем оригинальную конечную точку
-  optimizedRoute.push(routeCoordinates[routeCoordinates.length - 1]);
-  
-  return optimizedRoute;
-};
-
-// Расчет расстояния маршрута по координатам
-const calculateRouteDistance = (coordinates) => {
-  let totalDistance = 0;
-  
-  for (let i = 1; i < coordinates.length; i++) {
-    const point1 = coordinates[i - 1];
-    const point2 = coordinates[i];
-    
-    totalDistance += calculateDirectDistance(
-      point1.latitude, point1.longitude,
-      point2.latitude, point2.longitude
-    );
-  }
-  
-  return totalDistance;
-};
-
-// Расчет прямого расстояния между двумя точками (формула Haversine)
-const calculateDirectDistance = (lat1, lon1, lat2, lon2) => {
-  const R = 6371; // Радиус Земли в километрах
-  const dLat = deg2rad(lat2 - lat1);
-  const dLon = deg2rad(lon2 - lon1);
-  const a = 
-    Math.sin(dLat/2) * Math.sin(dLat/2) +
-    Math.cos(deg2rad(lat1)) * Math.cos(deg2rad(lat2)) * 
-    Math.sin(dLon/2) * Math.sin(dLon/2); 
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-  return R * c; // Расстояние в километрах
 };
 
 // Экспортируем все API функции
