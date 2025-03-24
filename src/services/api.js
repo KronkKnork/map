@@ -306,6 +306,53 @@ export const reverseGeocode = async (latitude, longitude) => {
   }
 };
 
+// Функция для имитации данных о пробках на участках маршрута
+// В реальном приложении здесь был бы запрос к сервису пробок
+export const getTrafficData = (coordinates, mode) => {
+  // Для режимов кроме DRIVING не учитываем пробки
+  if (mode !== 'DRIVING' || !coordinates || coordinates.length < 2) {
+    return coordinates.map(() => 0); // Нет пробок
+  }
+  
+  console.log(`API: Генерация данных о пробках для маршрута с ${coordinates.length} точками`);
+  
+  // Создаем массив с данными о пробках для каждого сегмента маршрута
+  // 0 - нет пробок, 10 - максимальные пробки
+  const trafficData = [];
+  
+  // Вычисляем базовую нагрузку для всего маршрута
+  // (чем ближе к центру, тем вероятнее пробки)
+  const centerIndex = Math.floor(coordinates.length / 2);
+  
+  for (let i = 0; i < coordinates.length - 1; i++) {
+    const point = coordinates[i];
+    
+    // Генерируем значение пробок в зависимости от положения сегмента на маршруте
+    // Ближе к центру маршрута - вероятнее пробки
+    const distanceFromCenter = Math.abs(i - centerIndex) / centerIndex;
+    
+    // Вычисляем базовое значение трафика - на краях маршрута меньше, в середине больше
+    let trafficValue = 10 * (1 - distanceFromCenter * 0.7);
+    
+    // Добавляем немного случайности (±30%)
+    const randomFactor = 0.7 + Math.random() * 0.6; // 0.7 - 1.3
+    trafficValue *= randomFactor;
+    
+    // Ограничиваем значение от 0 до 10
+    trafficValue = Math.min(10, Math.max(0, trafficValue));
+    
+    // Округляем до целого
+    trafficData.push(Math.round(trafficValue));
+  }
+  
+  // Добавляем последнее значение, чтобы длина совпадала с количеством координат
+  trafficData.push(trafficData[trafficData.length - 1] || 0);
+  
+  console.log(`API: Сгенерированы данные о пробках, диапазон: ${Math.min(...trafficData)}-${Math.max(...trafficData)}`);
+  
+  return trafficData;
+};
+
 /**
  * Получение маршрута между двумя точками
  * 
@@ -457,6 +504,9 @@ export const fetchRouteDirections = async (
         longitude: coord[0]
       }));
       
+      // Получаем данные о пробках для каждого сегмента маршрута
+      const trafficData = getTrafficData(coordinates, mode);
+      
       console.log(`API: Маршрут ${mode} получен успешно: ${coordinates.length} точек, ${distance.toFixed(1)} км, ${Math.round(duration)} мин`);
       
       return {
@@ -464,7 +514,8 @@ export const fetchRouteDirections = async (
         distance,
         duration,
         isApproximate: false,
-        mode
+        mode,
+        trafficData,
       };
     } else {
       console.error('API: Ответ сервера не содержит нужных данных для маршрута');
@@ -494,7 +545,8 @@ const createFallbackRoute = (origin, destination, mode) => {
       distance: 0,
       duration: 0,
       isApproximate: true,
-      mode
+      mode,
+      trafficData: []
     };
   }
   
@@ -527,12 +579,29 @@ const createFallbackRoute = (origin, destination, mode) => {
   const speed = speeds[mode] || 50;
   const duration = (distance / speed) * 60; // минуты
   
+  // Если это маршрут для автомобиля, создаем данные о пробках
+  // Простой вариант - низкая загруженность в начале и конце, выше в середине
+  let trafficData = [];
+  if (mode === 'DRIVING') {
+    trafficData = coordinates.map((_, index) => {
+      // Создаем имитацию пробок - больше всего в середине маршрута
+      const normalizedPosition = index / coordinates.length;
+      const distanceFromCenter = Math.abs(normalizedPosition - 0.5) * 2;  // 0 в центре, 1 на краях
+      const trafficValue = Math.round(8 - 8 * distanceFromCenter);  // От 0 до 8 баллов
+      return trafficValue;
+    });
+  } else {
+    // Для других режимов пробок нет
+    trafficData = coordinates.map(() => 0);
+  }
+  
   return {
     coordinates,
     distance,
     duration,
     isApproximate: true,
-    mode
+    mode,
+    trafficData
   };
 };
 

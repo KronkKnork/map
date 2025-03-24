@@ -119,6 +119,7 @@ const RouteDirections = ({
 }) => {
   const [coordinates, setCoordinates] = useState([]);
   const [routeInfo, setRouteInfo] = useState(null);
+  const [trafficData, setTrafficData] = useState([]);
   const abortControllerRef = useRef(null);
   const timerRef = useRef(null);
   const lastRequestParamsRef = useRef('');
@@ -127,44 +128,23 @@ const RouteDirections = ({
   const isMountedRef = useRef(true);
   const lastFetchTimeRef = useRef(0);
   
-  // Получаем цвет линии в зависимости от типа маршрута и загруженности (для авто)
-  const getRouteColor = useCallback(() => {
-    if (strokeColor) return strokeColor;
-    
-    // Для автомобильного маршрута используем цвет в зависимости от загруженности
-    if (mode === 'DRIVING' && routeInfo) {
-      // Получаем ориентировочное время в свободной дороге
-      // (используя примерное среднее 60 км/ч для автомобиля)
-      const freeRoadTime = routeInfo.distance / 60 * 60; // время в минутах
-      
-      // Коэффициент загруженности (насколько дольше занимает поездка из-за пробок)
-      const trafficRatio = routeInfo.duration / freeRoadTime;
-      
-      if (trafficRatio <= 1.1) {
-        // Свободная дорога
-        return theme.colors.trafficFree; // Зеленый
-      } else if (trafficRatio <= 1.3) {
-        // Умеренная загруженность
-        return theme.colors.trafficModerate; // Желтый
-      } else if (trafficRatio <= 1.7) {
-        // Сильная загруженность
-        return theme.colors.trafficHeavy; // Оранжевый
-      } else {
-        // Очень сильная загруженность
-        return theme.colors.trafficSevere; // Красный
-      }
+  // Функция для получения цвета в зависимости от трафика (от 0 до 10)
+  const getTrafficColor = useCallback((trafficValue) => {
+    if (typeof trafficValue !== 'number' || trafficValue < 0) {
+      return theme.colors.trafficFree;
     }
     
-    // Для всех остальных типов маршрутов (не авто) используем синий
-    switch (mode) {
-      case 'WALKING':
-      case 'BICYCLING':
-      case 'TRANSIT':
-        return theme.colors.routeWalk; // Синий
-      default:
-        return theme.colors.primary;
+    // Пороговые значения для определения цвета
+    if (trafficValue <= 2) {
+      return theme.colors.trafficFree; // Зеленый - свободно
+    } else if (trafficValue <= 5) {
+      return theme.colors.trafficModerate; // Желтый - умеренно
+    } else if (trafficValue <= 8) {
+      return theme.colors.trafficHeavy; // Оранжевый - затруднено
+    } else {
+      return theme.colors.trafficSevere; // Красный - сильно затруднено
     }
-  }, [mode, strokeColor, routeInfo]);
+  }, []);
   
   // Получаем толщину линии в зависимости от типа маршрута
   const getRouteWidth = useCallback(() => {
@@ -198,207 +178,44 @@ const RouteDirections = ({
     }
   }, [mode]);
   
-  // Функция для определения реального режима маршрута в зависимости от API
-  const getEffectiveMode = (mode) => {
-    // В нашем API теперь принимаются режимы в формате 'DRIVING', 'WALKING', 'BICYCLING', 'TRANSIT'
-    // а не 'driving', 'walking', и т.д.
-    switch (mode) {
-      case 'walking':
-      case 'foot':
-        return 'WALKING';
-      case 'cycling':
-      case 'bike':
-      case 'bicycle':
-        return 'BICYCLING';
-      case 'transit':
-      case 'public_transport':
-        return 'TRANSIT';
-      case 'driving':
-      case 'car':
-      default:
-        return 'DRIVING';
+  // Разделяем маршрут на сегменты с разными цветами для пробок
+  const renderTrafficSegments = useCallback(() => {
+    if (mode !== 'DRIVING' || !trafficData || trafficData.length === 0 || !coordinates || coordinates.length < 2) {
+      // Если это не автомобильный маршрут или нет данных о пробках, рисуем обычную линию
+      return (
+        <Polyline
+          coordinates={coordinates}
+          strokeColor={strokeColor || theme.colors.primary}
+          strokeWidth={getRouteWidth()}
+          lineDashPattern={getRouteLinePattern()}
+          zIndex={1}
+        />
+      );
     }
-  };
+    
+    // Создаем сегменты маршрута с разными цветами
+    const segments = [];
+    
+    for (let i = 0; i < coordinates.length - 1; i++) {
+      const segmentCoords = [coordinates[i], coordinates[i+1]];
+      const trafficValue = trafficData[i] || 0;
+      const segmentColor = getTrafficColor(trafficValue);
+      
+      segments.push(
+        <Polyline
+          key={`segment-${i}`}
+          coordinates={segmentCoords}
+          strokeColor={segmentColor}
+          strokeWidth={getRouteWidth()}
+          lineDashPattern={getRouteLinePattern()}
+          zIndex={1}
+        />
+      );
+    }
+    
+    return segments;
+  }, [coordinates, trafficData, mode, strokeColor, getRouteWidth, getRouteLinePattern, getTrafficColor]);
   
-  // Используем useCallback для предотвращения лишних перерисовок
-  const fetchRoute = useCallback(async (signal) => {
-    try {
-      console.log(`RouteDirections: запрашиваем маршрут для режима: ${mode}`);
-      
-      // Проверяем валидность точек маршрута
-      if (!origin || !destination) {
-        console.log('RouteDirections: отсутствуют начальная или конечная точки маршрута');
-        setCoordinates([]);
-        setRouteInfo(null);
-        if (onRouteReady) {
-          onRouteReady({
-            coordinates: [],
-            distance: 0,
-            duration: 0,
-            isApproximate: true,
-            mode: mode
-          });
-        }
-        return;
-      }
-      
-      // Формируем строку с параметрами запроса для сравнения
-      const requestParams = JSON.stringify({
-        originLat: origin.latitude.toFixed(6),
-        originLng: origin.longitude.toFixed(6),
-        destLat: destination.latitude.toFixed(6),
-        destLng: destination.longitude.toFixed(6),
-        mode: mode,
-      });
-      
-      // Если мы уже запрашивали эти же параметры и получили результат, не делаем новый запрос
-      if (routeFetchedRef.current && requestParams === lastRequestParamsRef.current) {
-        console.log('RouteDirections: пропускаем повторный запрос с теми же параметрами');
-        
-        // Но всё же отправляем существующие данные в колбэк, если это первый запрос
-        if (!initialFetchDoneRef.current && onRouteReady && routeInfo) {
-          onRouteReady({
-            coordinates: coordinates,
-            distance: routeInfo.distance,
-            duration: routeInfo.duration,
-            isApproximate: routeInfo.isApproximate || false,
-            mode: mode
-          });
-          initialFetchDoneRef.current = true;
-        }
-        return;
-      }
-      
-      // Обновляем параметры последнего запроса
-      lastRequestParamsRef.current = requestParams;
-      routeFetchedRef.current = false;
-      
-      // Если у нас уже есть запрос в процессе, отменяем его
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
-      }
-      
-      // Создаём новый контроллер для возможности отмены
-      abortControllerRef.current = new AbortController();
-      const localSignal = signal || abortControllerRef.current.signal;
-      
-      // Используем реальный режим для API
-      const effectiveMode = getEffectiveMode(mode);
-      
-      console.log(`RouteDirections: запрашиваем API маршрут для режима ${effectiveMode}`);
-      
-      // Получаем данные маршрута из API
-      try {
-        const result = await fetchRouteDirections(
-          origin,
-          destination,
-          waypoints,
-          effectiveMode,
-          localSignal
-        );
-        
-        // Проверяем что компонент все еще смонтирован
-        if (!isMountedRef.current) return;
-        
-        // Проверяем результат
-        if (result && result.coordinates && result.coordinates.length > 0) {
-          console.log(`RouteDirections: получен маршрут: ${result.distance.toFixed(1)} км, ${Math.round(result.duration)} мин, координат: ${result.coordinates.length}`);
-          
-          setCoordinates(result.coordinates);
-          setRouteInfo({
-            distance: result.distance,
-            duration: result.duration,
-            isApproximate: result.isApproximate || false
-          });
-          
-          if (onRouteReady) {
-            console.log(`RouteDirections: отправляем данные маршрута в колбэк`);
-            onRouteReady({
-              coordinates: result.coordinates,
-              distance: result.distance,
-              duration: result.duration,
-              isApproximate: result.isApproximate || false,
-              mode: mode
-            });
-            initialFetchDoneRef.current = true;
-          }
-          
-          routeFetchedRef.current = true;
-        } else {
-          console.error('RouteDirections: нет данных для построения маршрута');
-          handleFallbackRoute();
-        }
-      } catch (error) {
-        // Проверяем что компонент все еще смонтирован
-        if (!isMountedRef.current) return;
-        
-        console.error('RouteDirections: ошибка при получении маршрута:', error);
-        handleFallbackRoute();
-      }
-    } catch (error) {
-      // Проверяем что компонент все еще смонтирован
-      if (!isMountedRef.current) return;
-      
-      console.error('RouteDirections: общая ошибка:', error);
-      handleFallbackRoute();
-    }
-  }, [origin, destination, waypoints, mode, onRouteReady]);
-  
-  // Обработка состояния ошибки - показываем прямую линию
-  const handleFallbackRoute = useCallback(() => {
-    if (!origin || !destination || !isMountedRef.current) return;
-    
-    console.log('RouteDirections: используем резервный маршрут по прямой линии');
-    
-    const directDistance = calculateDirectDistance(origin, destination);
-    const approximateTime = calculateApproximateTime(directDistance, mode);
-    
-    // Создаем прямую линию с несколькими точками для плавности
-    const coordinates = [origin];
-    
-    // Добавляем промежуточные точки
-    const numPoints = Math.max(2, Math.min(10, Math.ceil(directDistance * 5)));
-    for (let i = 1; i < numPoints; i++) {
-      const ratio = i / numPoints;
-      
-      const lat = origin.latitude + (destination.latitude - origin.latitude) * ratio;
-      const lng = origin.longitude + (destination.longitude - origin.longitude) * ratio;
-      
-      coordinates.push({ latitude: lat, longitude: lng });
-    }
-    
-    coordinates.push(destination);
-    
-    setCoordinates(coordinates);
-    setRouteInfo({
-      distance: directDistance,
-      duration: approximateTime,
-      isApproximate: true
-    });
-    
-    if (onRouteReady) {
-      console.log(`RouteDirections: отправляем данные резервного маршрута в колбэк`);
-      onRouteReady({
-        coordinates: coordinates,
-        distance: directDistance,
-        duration: approximateTime,
-        isApproximate: true,
-        mode: mode
-      });
-      initialFetchDoneRef.current = true;
-    }
-    
-    routeFetchedRef.current = true;
-  }, [origin, destination, mode, onRouteReady]);
-
-  // Сбрасываем флаг смонтированности компонента при размонтировании
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
-
   // Эффект для запроса маршрута при изменении параметров
   useEffect(() => {
     // Проверяем, что компонент смонтирован
@@ -411,6 +228,7 @@ const RouteDirections = ({
       console.log('RouteDirections: начальная и конечная точки маршрута совпадают или отсутствуют.');
       setCoordinates([]);
       setRouteInfo(null);
+      setTrafficData([]);
       if (onRouteReady) {
         onRouteReady({
           coordinates: [],
@@ -471,17 +289,26 @@ const RouteDirections = ({
             isApproximate: result.isApproximate || false
           });
           
+          // Сохраняем данные о пробках, если они есть
+          if (result.trafficData && Array.isArray(result.trafficData)) {
+            setTrafficData(result.trafficData);
+          } else {
+            setTrafficData([]);
+          }
+          
           if (onRouteReady) {
             onRouteReady({
               coordinates: result.coordinates,
               distance: result.distance,
               duration: result.duration,
               isApproximate: result.isApproximate || false,
-              mode: mode
+              mode: mode,
+              trafficData: result.trafficData
             });
           }
         } else {
           console.log('RouteDirections: получен пустой результат');
+          setTrafficData([]);
           handleFallbackRoute();
         }
       })
@@ -491,6 +318,7 @@ const RouteDirections = ({
         
         if (error.name !== 'AbortError') {
           console.error('RouteDirections: ошибка при получении маршрута:', error);
+          setTrafficData([]);
           handleFallbackRoute();
         }
       });
@@ -507,6 +335,61 @@ const RouteDirections = ({
     };
   }, [origin, destination, mode, waypoints]);
   
+  // Обработка состояния ошибки - показываем прямую линию
+  const handleFallbackRoute = useCallback(() => {
+    if (!origin || !destination || !isMountedRef.current) return;
+    
+    console.log('RouteDirections: используем резервный маршрут по прямой линии');
+    
+    const directDistance = calculateDirectDistance(origin, destination);
+    const approximateTime = calculateApproximateTime(directDistance, mode);
+    
+    // Создаем прямую линию с несколькими точками для плавности
+    const coordinates = [origin];
+    
+    // Добавляем промежуточные точки
+    const numPoints = Math.max(2, Math.min(10, Math.ceil(directDistance * 5)));
+    for (let i = 1; i < numPoints; i++) {
+      const ratio = i / numPoints;
+      
+      const lat = origin.latitude + (destination.latitude - origin.latitude) * ratio;
+      const lng = origin.longitude + (destination.longitude - origin.longitude) * ratio;
+      
+      coordinates.push({ latitude: lat, longitude: lng });
+    }
+    
+    coordinates.push(destination);
+    
+    setCoordinates(coordinates);
+    setRouteInfo({
+      distance: directDistance,
+      duration: approximateTime,
+      isApproximate: true
+    });
+    
+    if (onRouteReady) {
+      console.log(`RouteDirections: отправляем данные резервного маршрута в колбэк`);
+      onRouteReady({
+        coordinates: coordinates,
+        distance: directDistance,
+        duration: approximateTime,
+        isApproximate: true,
+        mode: mode
+      });
+      initialFetchDoneRef.current = true;
+    }
+    
+    routeFetchedRef.current = true;
+  }, [origin, destination, mode, onRouteReady]);
+
+  // Сбрасываем флаг смонтированности компонента при размонтировании
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   // Расчет прямого расстояния между двумя точками (формула Haversine)
   const calculateDirectDistance = (pointA, pointB) => {
     const R = 6371; // Радиус Земли в километрах
@@ -570,7 +453,7 @@ const RouteDirections = ({
   }
 
   // Получаем текущий цвет и ширину линии
-  const currentColor = getRouteColor();
+  const currentColor = strokeColor || theme.colors.primary;
   const currentWidth = getRouteWidth();
   const linePattern = getRouteLinePattern();
   
@@ -579,16 +462,22 @@ const RouteDirections = ({
 
   return (
     <>
-      <Polyline
-        coordinates={coordinates}
-        strokeColor={currentColor}
-        strokeWidth={currentWidth}
-        strokePattern={linePattern}
-        geodesic
-        zIndex={1}
-        lineCap="round"
-        lineJoin="round"
-      />
+      {/* Рендерим маршрут в зависимости от наличия данных о пробках */}
+      {mode === 'DRIVING' && trafficData.length > 0 ? 
+        renderTrafficSegments() : 
+        coordinates.length > 0 && (
+          <Polyline
+            coordinates={coordinates}
+            strokeColor={currentColor}
+            strokeWidth={currentWidth}
+            lineDashPattern={linePattern}
+            geodesic
+            zIndex={1}
+            lineCap="round"
+            lineJoin="round"
+          />
+        )
+      }
       
       {/* Аннотация с временем маршрута */}
       {routeInfo && annotationCoordinate && (

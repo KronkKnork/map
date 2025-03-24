@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
-import MapView, { PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { PROVIDER_DEFAULT, UrlTile } from 'react-native-maps';
 import RouteDirections from './RouteDirections';
 
 /**
@@ -49,204 +49,144 @@ const MapViewComponent = forwardRef(({
     return null;
   }, []);
   
-  // Безопасное получение текущего региона
-  const safeRegion = React.useMemo(() => {
-    if (region) {
-      return region;
-    } else if (internalRegion) {
-      return internalRegion;
-    } else if (userLocation && userLocation.coords) {
-      return {
-        latitude: userLocation.coords.latitude,
-        longitude: userLocation.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01
-      };
-    }
-    // В крайнем случае вернем дефолтный регион (Москва), 
-    // но это произойдет только если ничего не передано
-    return {
-      latitude: 55.751244,
-      longitude: 37.618423,
-      latitudeDelta: 0.01,
-      longitudeDelta: 0.01
-    };
-  }, [region, internalRegion, userLocation]);
+  // Ссылка на компонент карты
+  const mapRef = useRef(null);
   
-  // Обработка начала взаимодействия пользователя с картой
-  const handlePanDrag = useCallback(() => {
-    isUserInteractingRef.current = true;
-  }, []);
-  
-  // Обработка готовности карты
-  const handleMapReady = useCallback(() => {
-    console.log('MapView готова к отображению');
-    
-    // При первой загрузке сразу центрируем на местоположении пользователя
-    if (userLocation && !initialLoadDoneRef.current && ref?.current) {
-      console.log('MapView: перемещаемся к местоположению пользователя при загрузке');
-      const newRegion = {
-        latitude: userLocation.coords.latitude,
-        longitude: userLocation.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      };
+  // Обработчик изменения региона карты
+  const handleRegionChange = useCallback((newRegion) => {
+    // Сохраняем текущий регион во внутреннем состоянии
+    if (newRegion && newRegion.latitude && !isNaN(newRegion.latitude)) {
+      setInternalRegion(newRegion);
       
-      // Небольшая задержка для гарантии что карта готова
-      setTimeout(() => {
-        ref.current.animateToRegion(newRegion, 500);
+      // Устанавливаем таймаут для уведомления родителя об изменении региона
+      // чтобы не вызывать слишком часто при активном перемещении
+      if (regionChangeTimeoutRef.current) {
+        clearTimeout(regionChangeTimeoutRef.current);
+      }
+      
+      regionChangeTimeoutRef.current = setTimeout(() => {
+        if (onRegionChange && isUserInteractingRef.current) {
+          onRegionChange(newRegion);
+          isUserInteractingRef.current = false;
+        }
       }, 300);
-      
-      initialLoadDoneRef.current = true;
     }
-  }, [userLocation]);
+  }, [onRegionChange]);
   
-  // Безопасный обработчик нажатия на карту
+  // Обработчик нажатия на карту
   const handlePress = useCallback((event) => {
-    if (onPress && event && event.nativeEvent) {
-      console.log('Обрабатываем нажатие на карту');
+    // Обработка нажатия на карту только если предоставлен обработчик
+    if (onPress) {
       onPress(event);
     }
   }, [onPress]);
   
-  // Безопасный обработчик изменения региона
-  const handleRegionChange = useCallback((newRegion, details) => {
-    // Очищаем предыдущий таймер
-    if (regionChangeTimeoutRef.current) {
-      clearTimeout(regionChangeTimeoutRef.current);
-    }
-    
-    // Сохраняем внутренний регион всегда
-    setInternalRegion(newRegion);
-    
-    // Если пользователь двигает карту, обновляем флаг движения
-    if (details && details.isGesture) {
-      isMovingRef.current = true;
-      isUserInteractingRef.current = true;
-    }
-    
-    // Откладываем вызов, чтобы уменьшить количество обновлений
-    regionChangeTimeoutRef.current = setTimeout(() => {
-      if (onRegionChange && !routeData) {
-        onRegionChange(newRegion);
-      }
-      
-      // Сбрасываем флаг движения через небольшую задержку
-      isMovingRef.current = false;
-      
-      // Не сбрасываем флаг взаимодействия при изменении региона
-      // в результате жеста пользователя, а только через 5 секунд
-      if (details && details.isGesture) {
-        setTimeout(() => {
-          isUserInteractingRef.current = false;
-        }, 5000);
-      } else {
-        isUserInteractingRef.current = false;
-      }
-    }, 100);
-  }, [onRegionChange, routeData]);
-  
-  // Специальный эффект только для первой загрузки с местоположением
-  useEffect(() => {
-    if (userLocation && !initialLoadDoneRef.current) {
-      console.log('MapView: обнаружено первое местоположение пользователя');
-      // Отметим что центрирование произойдет через onMapReady
-      initialLoadDoneRef.current = true;
-      
-      // Также обновим внутренний регион
-      setInternalRegion({
-        latitude: userLocation.coords.latitude,
-        longitude: userLocation.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      });
-    }
-  }, [userLocation]);
-  
-  // Обновление региона при изменении местоположения пользователя
-  useEffect(() => {
-    // Сохраняем последнее местоположение для проверки изменений
-    if (userLocation && 
-        (!lastUserLocationRef.current || 
-         userLocation.coords.latitude !== lastUserLocationRef.current.latitude ||
-         userLocation.coords.longitude !== lastUserLocationRef.current.longitude)) {
-      
-      lastUserLocationRef.current = {
-        latitude: userLocation.coords.latitude,
-        longitude: userLocation.coords.longitude
-      };
-      
-      // Обновляем регион только если не строится маршрут и пользователь не взаимодействует с картой
-      if (!routeData && !isUserInteractingRef.current && ref?.current) {
-        const newRegion = {
-          latitude: userLocation.coords.latitude,
-          longitude: userLocation.coords.longitude,
-          latitudeDelta: safeRegion.latitudeDelta,
-          longitudeDelta: safeRegion.longitudeDelta,
-        };
-        
-        // Используем ref для обновления региона напрямую
-        ref.current.animateToRegion(newRegion, 1000);
-      }
-    }
-  }, [userLocation, routeData, safeRegion, ref]);
-  
-  // Очистка таймера при размонтировании
-  useEffect(() => {
-    return () => {
-      if (regionChangeTimeoutRef.current) {
-        clearTimeout(regionChangeTimeoutRef.current);
-      }
-    };
+  // Обработчик начала перемещения карты
+  const handlePanDrag = useCallback(() => {
+    isUserInteractingRef.current = true;
   }, []);
-
-  // Если нет валидного региона или координат, не рендерим карту
-  if (!hasValidRegion) {
-    return <View style={styles.container} />;
-  }
+  
+  // Обработчик загрузки карты
+  const handleMapReady = useCallback(() => {
+    initialLoadDoneRef.current = true;
+    
+    // Если есть начальный регион - используем его
+    if (initialRegion && mapRef.current) {
+      mapRef.current.animateToRegion(initialRegion, 500);
+    }
+  }, [initialRegion]);
+  
+  // Предоставляем методы для внешнего доступа через ref
+  useImperativeHandle(ref, () => ({
+    animateToRegion: (targetRegion, duration = 1000) => {
+      if (mapRef.current && targetRegion) {
+        mapRef.current.animateToRegion(targetRegion, duration);
+      }
+    },
+    fitToCoordinates: (coordinates, options = {}) => {
+      if (mapRef.current && coordinates && coordinates.length > 0) {
+        const defaultOptions = { 
+          edgePadding: { top: 50, right: 50, bottom: 50, left: 50 }, 
+          animated: true 
+        };
+        mapRef.current.fitToCoordinates(coordinates, { ...defaultOptions, ...options });
+      }
+    },
+    getMapRef: () => mapRef.current
+  }));
+  
+  // Обработка внешних обновлений региона
+  useEffect(() => {
+    if (region && mapRef.current && initialLoadDoneRef.current) {
+      // Анимируем к новому региону только если он существенно отличается
+      // и пользователь не взаимодействует с картой в данный момент
+      if (!isUserInteractingRef.current && !isMovingRef.current) {
+        isMovingRef.current = true;
+        mapRef.current.animateToRegion(region, 500);
+        
+        // Сбрасываем флаг перемещения через короткий промежуток
+        setTimeout(() => {
+          isMovingRef.current = false;
+        }, 600);
+      }
+    }
+  }, [region]);
 
   return (
     <View style={styles.container}>
-      <MapView
-        ref={ref}
-        style={styles.map}
-        provider={Platform.OS === 'ios' ? undefined : PROVIDER_GOOGLE}
-        initialRegion={initialRegion}
-        region={safeRegion}
-        onRegionChange={handleRegionChange}
-        onPress={handlePress}
-        onPanDrag={handlePanDrag}
-        onMapReady={handleMapReady}
-        showsUserLocation={!!userLocation}
-        showsMyLocationButton={false}
-        showsCompass={false}
-        showsScale={true}
-        loadingEnabled={true}
-        mapType={mapType}
-        rotateEnabled={rotateEnabled}
-        zoomEnabled={true}
-        scrollEnabled={true}
-        pitchEnabled={true}
-        toolbarEnabled={false}
-        moveOnMarkerPress={false}
-        minZoomLevel={3}
-        maxZoomLevel={20}
-      >
-        {/* Отображение маршрута если данные предоставлены и маршрут не загружается */}
-        {routeData && routeData.origin && routeData.destination && !isRouteLoading && (
-          <RouteDirections
-            origin={routeData.origin}
-            destination={routeData.destination}
-            mode={routeData.mode || 'DRIVING'}
-            onRouteReady={onRouteReady}
-            strokeColor="#1a73e8"
-            strokeWidth={5}
+      {hasValidRegion && (
+        <MapView
+          ref={mapRef}
+          style={styles.map}
+          provider={PROVIDER_DEFAULT}
+          initialRegion={initialRegion}
+          region={internalRegion}
+          mapType={mapType}
+          rotateEnabled={rotateEnabled}
+          zoomEnabled={true}
+          scrollEnabled={true}
+          pitchEnabled={true}
+          toolbarEnabled={false}
+          moveOnMarkerPress={false}
+          onPress={handlePress}
+          onRegionChangeComplete={handleRegionChange}
+          onPanDrag={handlePanDrag}
+          onMapReady={handleMapReady}
+          showsUserLocation={!!userLocation}
+          followsUserLocation={false}
+          showsMyLocationButton={false}
+          showsCompass={true}
+          loadingEnabled={true}
+          showsScale={true}
+          minZoomLevel={3}
+          maxZoomLevel={19}
+        >
+          {/* URL-тайлы OpenStreetMap */}
+          <UrlTile 
+            urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+            maximumZ={19}
+            flipY={false}
+            zIndex={-1}
           />
-        )}
-        
-        {/* Отображаем дочерние элементы (маркеры и т.д.) */}
-        {children}
-      </MapView>
+          
+          {/* Отображение маршрута если данные предоставлены и маршрут не загружается */}
+          {routeData && routeData.origin && routeData.destination && !isRouteLoading && (
+            <RouteDirections
+              origin={routeData.origin}
+              destination={routeData.destination}
+              waypoints={routeData.waypoints || []}
+              mode={routeData.mode || 'DRIVING'}
+              onRouteReady={onRouteReady}
+              strokeColor="#1a73e8"
+              strokeWidth={5}
+              showMarkers={false}
+            />
+          )}
+          
+          {/* Отображаем дочерние элементы (маркеры и т.д.) */}
+          {children}
+        </MapView>
+      )}
     </View>
   );
 });
@@ -254,8 +194,7 @@ const MapViewComponent = forwardRef(({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    position: 'relative',
-    overflow: 'hidden',
+    backgroundColor: '#f5f5f5',
   },
   map: {
     width: '100%',
@@ -263,5 +202,5 @@ const styles = StyleSheet.create({
   },
 });
 
-export default React.memo(MapViewComponent);
+export default MapViewComponent;
 
