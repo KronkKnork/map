@@ -205,9 +205,15 @@ const RouteDirections = ({
       const now = Date.now();
       const timeSinceLastFetch = now - lastFetchTimeRef.current;
       
+      // Если запрос идет от смены пользователем типа маршрута, 
+      // то не проверяем время с последнего запроса
+      const isUserInitiatedRequest = lastRequestParamsRef.current === '';
+      
+      // Минимальный интервал между автоматическими запросами
       const minFetchInterval = mode === 'DRIVING' ? 5000 : 10000; // 5 или 10 секунд
       
-      if (timeSinceLastFetch < minFetchInterval && lastFetchTimeRef.current > 0) {
+      // Пропускаем проверку времени если это запрос инициированный пользователем
+      if (!isUserInitiatedRequest && timeSinceLastFetch < minFetchInterval && lastFetchTimeRef.current > 0) {
         console.log(`RouteDirections: слишком частый запрос, пропускаем (прошло ${timeSinceLastFetch}мс из ${minFetchInterval}мс)`);
         return;
       }

@@ -456,15 +456,13 @@ const MapScreen = () => {
           [mode]: false
         }));
         
-        // Подстраиваем карту под маршрут
+        // Подстраиваем карту под маршрут без задержки
         if (allRoutes[mode].coordinates.length > 1 && mapRef.current) {
-          setTimeout(() => {
-            const padding = { top: 100, right: 50, bottom: 250, left: 50 };
-            mapRef.current.fitToCoordinates(allRoutes[mode].coordinates, { 
-              edgePadding: padding, 
-              animated: true 
-            });
-          }, 300);
+          const padding = { top: 100, right: 50, bottom: 250, left: 50 };
+          mapRef.current.fitToCoordinates(allRoutes[mode].coordinates, { 
+            edgePadding: padding, 
+            animated: true 
+          });
         }
       } else {
         console.log(`🔄 Запрашиваем координаты для маршрута типа ${mode}`);
@@ -506,15 +504,13 @@ const MapScreen = () => {
               // Устанавливаем текущий маршрут
               setRouteDetails(updatedRoute);
               
-              // Подстраиваем карту под маршрут
+              // Подстраиваем карту под маршрут без задержки
               if (result.coordinates.length > 1 && mapRef.current) {
-                setTimeout(() => {
-                  const padding = { top: 100, right: 50, bottom: 250, left: 50 };
-                  mapRef.current.fitToCoordinates(result.coordinates, { 
-                    edgePadding: padding, 
-                    animated: true 
-                  });
-                }, 300);
+                const padding = { top: 100, right: 50, bottom: 250, left: 50 };
+                mapRef.current.fitToCoordinates(result.coordinates, { 
+                  edgePadding: padding, 
+                  animated: true 
+                });
               }
             } else {
               console.warn(`⚠️ Некорректные данные маршрута для типа ${mode}`);
@@ -572,15 +568,13 @@ const MapScreen = () => {
             // Устанавливаем текущий маршрут
             setRouteDetails(newRoute);
             
-            // Подстраиваем карту под маршрут
+            // Подстраиваем карту под маршрут без задержки
             if (result.coordinates.length > 1 && mapRef.current) {
-              setTimeout(() => {
-                const padding = { top: 100, right: 50, bottom: 250, left: 50 };
-                mapRef.current.fitToCoordinates(result.coordinates, { 
-                  edgePadding: padding, 
-                  animated: true 
-                });
-              }, 300);
+              const padding = { top: 100, right: 50, bottom: 250, left: 50 };
+              mapRef.current.fitToCoordinates(result.coordinates, { 
+                edgePadding: padding, 
+                animated: true 
+              });
             }
           } else {
             console.warn(`⚠️ Некорректные данные маршрута для типа ${mode}`);
@@ -762,7 +756,8 @@ const MapScreen = () => {
             [type]: false
           }));
           
-          // Задержка перед следующим запросом
+          // Задержка перед следующим запросом (только для фонового запроса всех маршрутов)
+          // При явном переключении пользователем типа маршрута - запрос без задержки
           setTimeout(() => {
             requestNextType(index + 1);
           }, 1000); // 1 секунда между запросами
