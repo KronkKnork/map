@@ -81,10 +81,6 @@ const MapScreen = () => {
   // Обертка для handleMapPress, добавляющая контекст из других хуков
   const handleMapPressWrapper = (event) => {
     handleMapPress(event, isRouting, mapRef, isRouting ? handleCancelRouting : null);
-    
-    if (isSearchFocused) {
-      Keyboard.dismiss();
-    }
   };
   
   // Обертка для handleSelectSearchResult

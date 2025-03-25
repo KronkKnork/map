@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Alert } from 'react-native';
+import { Alert, Keyboard } from 'react-native';
 import { searchPlaces, reverseGeocode } from '../services/api';
 
 /**
@@ -105,6 +105,9 @@ export const useSearch = ({ location, calculateDistance }) => {
   const handleSelectSearchResult = (result, mapRef, onRouteCancel) => {
     console.log('🔍 ВЫЗВАН handleSelectSearchResult с результатом:', JSON.stringify(result));
     
+    // Закрываем клавиатуру немедленно
+    Keyboard.dismiss();
+    
     // Проверка на валидность результата
     if (!result) {
       console.warn('🚫 Пустой результат поиска');
@@ -185,6 +188,9 @@ export const useSearch = ({ location, calculateDistance }) => {
     
     // Если активно построение маршрута, игнорируем нажатие на карту
     if (isRouting) return;
+    
+    // Закрываем клавиатуру немедленно
+    Keyboard.dismiss();
     
     // Если открыта панель поиска, скрываем её
     if (isSearchFocused) {

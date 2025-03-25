@@ -33,15 +33,13 @@ export const useLocation = () => {
         
         setLocation(location);
         
-        // Инициализируем регион для карты
-        if (!region) {
-          setRegion({
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.02,
-            longitudeDelta: 0.02
-          });
-        }
+        // Устанавливаем начальный регион для карты всегда при получении первого местоположения
+        setRegion({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02
+        });
         
         // Подписка на обновления местоположения
         const watchId = Location.watchPositionAsync(

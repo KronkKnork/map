@@ -35,6 +35,14 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
   const apiErrorAlertShownRef = useRef(false);
   const mounted = useRef(true);
   
+  // Отслеживаем, был ли отображен маршрут определенного типа
+  const routeDisplayedRef = useRef({
+    DRIVING: false,
+    WALKING: false, 
+    BICYCLING: false,
+    TRANSIT: false
+  });
+  
   // Отслеживаем монтирование компонента
   useEffect(() => {
     mounted.current = true;
@@ -78,6 +86,14 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     setRouteDetails(null);
     routesRequestedRef.current = false;
     
+    // Сбрасываем флаги отображения маршрутов
+    routeDisplayedRef.current = {
+      DRIVING: false,
+      WALKING: false, 
+      BICYCLING: false,
+      TRANSIT: false
+    };
+    
     // Сбрасываем флаг запроса всех типов маршрутов
     window.allRoutesRequested = false;
     
@@ -90,6 +106,14 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     setIsRouting(false);
     setRouteDetails(null);
     routesRequestedRef.current = false;
+    
+    // Сбрасываем флаги отображения маршрутов
+    routeDisplayedRef.current = {
+      DRIVING: false,
+      WALKING: false, 
+      BICYCLING: false,
+      TRANSIT: false
+    };
     
     // Сбрасываем флаг запроса всех типов маршрутов
     window.allRoutesRequested = false;
@@ -185,14 +209,17 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
       [routeMode]: routeData
     }));
     
-    // Подстраиваем карту под маршрут только если есть координаты
-    if (mapRef?.current && routeData.coordinates && routeData.coordinates.length > 0) {
+    // Подстраиваем карту под маршрут только если это первое получение маршрута этого типа
+    if (mapRef?.current && routeData.coordinates && routeData.coordinates.length > 0 && !routeDisplayedRef.current[routeMode]) {
       console.log(`Подстраиваем карту под маршрут: ${routeData.coordinates.length} точек`);
       const padding = { top: 100, right: 50, bottom: 250, left: 50 };
       mapRef.current.fitToCoordinates(routeData.coordinates, {
         edgePadding: padding, 
         animated: true 
       });
+      
+      // Отмечаем, что маршрут данного типа уже был отображен
+      routeDisplayedRef.current[routeMode] = true;
     }
     
     // Запрашиваем другие типы маршрутов только один раз и только если они еще не загружены
@@ -525,13 +552,16 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
       // Сбрасываем индикатор загрузки
       setRoutesLoading(prev => ({ ...prev, [mode]: false }));
       
-      // Подстраиваем карту под маршрут
-      if (mapRef?.current && allRoutes[mode].coordinates.length > 0) {
+      // Подстраиваем карту под маршрут только если это первое отображение данного типа маршрута
+      if (mapRef?.current && allRoutes[mode].coordinates.length > 0 && !routeDisplayedRef.current[mode]) {
         const padding = { top: 100, right: 50, bottom: 250, left: 50 };
         mapRef.current.fitToCoordinates(allRoutes[mode].coordinates, { 
           edgePadding: padding, 
           animated: true 
         });
+        
+        // Отмечаем, что маршрут данного типа уже был отображен
+        routeDisplayedRef.current[mode] = true;
       }
       
       return;
