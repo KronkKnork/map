@@ -7,7 +7,7 @@ import { View, Text, StyleSheet } from 'react-native';
 
 // Импортируем заглушки для экранов (позже заменим на реальные компоненты)
 import MapScreen from '../screens/MapScreen';
-import SearchScreen from '../screens/SearchScreen';
+import MainScreen from '../screens/MainScreen';
 import RouteScreen from '../screens/RouteScreen';
 import FavoritesScreen from '../screens/FavoritesScreen';
 import ProfileScreen from '../screens/ProfileScreen';
@@ -24,7 +24,7 @@ const TabBarIcon = ({ focused, name, label }) => {
     <View style={styles.tabIconContainer}>
       <Ionicons 
         name={name} 
-        size={26} 
+        size={22} 
         color={focused ? theme.colors.primary : theme.colors.textSecondary} 
       />
       <Text 
@@ -49,17 +49,17 @@ export const TabNavigator = () => {
           let iconName;
 
           switch (route.name) {
+            case 'Route':
+              iconName = focused ? 'navigate' : 'navigate-outline';
+              break;
             case 'Map':
               iconName = focused ? 'map' : 'map-outline';
               break;
-            case 'Routes':
-              iconName = focused ? 'heart' : 'heart-outline';
+            case 'Main':
+              iconName = focused ? 'home' : 'home-outline';
               break;
-            case 'Search':
-              iconName = focused ? 'search' : 'search-outline';
-              break;
-            case 'Favorites':
-              iconName = focused ? 'bookmark' : 'bookmark-outline';
+            case 'Places':
+              iconName = focused ? 'location' : 'location-outline';
               break;
             case 'Profile':
               iconName = focused ? 'person' : 'person-outline';
@@ -78,6 +78,13 @@ export const TabNavigator = () => {
       })}
     >
       <Tab.Screen 
+        name="Route" 
+        component={RouteScreen} 
+        options={{ 
+          title: 'Маршрут',
+        }} 
+      />
+      <Tab.Screen 
         name="Map" 
         component={MapScreen} 
         options={{ 
@@ -85,15 +92,8 @@ export const TabNavigator = () => {
         }} 
       />
       <Tab.Screen 
-        name="Routes" 
-        component={FavoritesScreen} 
-        options={{ 
-          title: 'Любимые маршруты',
-        }} 
-      />
-      <Tab.Screen 
         name="Main" 
-        component={SearchScreen} 
+        component={MainScreen} 
         options={{ 
           title: 'Главная',
         }} 
@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   tabLabel: {
-    fontSize: 11, 
+    fontSize: 10, 
     marginTop: 2,
     fontWeight: '500',
     textAlign: 'center', 
@@ -150,30 +150,30 @@ const styles = StyleSheet.create({
     borderTopColor: theme.colors.border,
     elevation: 8,
     shadowColor: theme.colors.shadowMedium,
-    height: 70, 
+    height: 60, 
     paddingTop: 6,
-    paddingBottom: 8,
+    paddingBottom: 6,
     justifyContent: 'center', 
     alignItems: 'center', 
   },
   tabItem: {
-    height: 60, 
-    paddingVertical: 5, 
-    paddingHorizontal: 10, 
+    height: 50, 
+    paddingVertical: 4, 
+    paddingHorizontal: 8, 
   },
 });
 
 // Вспомогательная функция для получения названия вкладки
 const getLabelForRoute = (routeName) => {
   switch (routeName) {
+    case 'Route':
+      return 'Маршрут';
     case 'Map':
       return 'Карта';
-    case 'Routes':
-      return 'Любимые';
-    case 'Search':
-      return 'Поиск';
-    case 'Favorites':
-      return 'Избранное';
+    case 'Main':
+      return 'Главная';
+    case 'Places':
+      return 'Места';
     case 'Profile':
       return 'Профиль';
     default:
