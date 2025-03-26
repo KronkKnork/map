@@ -90,7 +90,7 @@ const MapScreen = () => {
 
   // Рендер компонента
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.searchContainer}>
         <SearchBar
           value={searchText}
@@ -269,7 +269,7 @@ const MapScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "white",
+    backgroundColor: theme.colors.background,
   },
   searchContainer: {
     paddingHorizontal: 16,
@@ -283,9 +283,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     bottom: 0,
-    // marginBottom: -34,
     overflow: 'hidden',
-    backgroundColor: "white",
   },
   mapControlsContainer: {
     position: 'absolute',
