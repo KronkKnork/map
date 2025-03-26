@@ -98,7 +98,10 @@ const MapScreen = () => {
           onSubmit={() => handleSearch()}
           onFocus={() => setIsSearchFocused(true)}
           onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
-          onClear={() => handleSearchTextChange('')}
+          onClear={() => {
+            handleSearchTextChange('');
+            Keyboard.dismiss();
+          }}
           isLoading={isSearchLoading}
           onVoiceSearch={handleVoiceSearch}
         />
@@ -107,7 +110,10 @@ const MapScreen = () => {
       {/* Результаты поиска */}
       <SearchResults
         results={searchResults}
-        onSelectResult={handleSelectSearchResultWrapper}
+        onSelectResult={(result) => {
+          handleSelectSearchResultWrapper(result);
+          Keyboard.dismiss();
+        }}
         isVisible={isSearchFocused && searchResults.length > 0}
       />
       
@@ -116,7 +122,10 @@ const MapScreen = () => {
           ref={mapRef}
           region={region}
           onRegionChange={handleRegionChange}
-          onPress={handleMapPressWrapper}
+          onPress={(e) => {
+            handleMapPressWrapper(e);
+            Keyboard.dismiss();
+          }}
           mapType={currentMapType}
           rotateEnabled={!isRouting} // Отключаем вращение при маршруте
           userLocation={location}
