@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Dimensions, Keyboard } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Pressable, Keyboard, Dimensions } from 'react-native';
 import { theme } from '../../theme';
 
 /**
@@ -9,7 +9,6 @@ const SearchResults = ({ results, onSelectResult, isVisible }) => {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const screenHeight = Dimensions.get('window').height;
   
-  // Отслеживаем высоту клавиатуры
   useEffect(() => {
     const keyboardDidShowListener = Keyboard.addListener(
       'keyboardDidShow',
@@ -17,6 +16,7 @@ const SearchResults = ({ results, onSelectResult, isVisible }) => {
         setKeyboardHeight(event.endCoordinates.height);
       }
     );
+    
     const keyboardDidHideListener = Keyboard.addListener(
       'keyboardDidHide',
       () => {
@@ -55,13 +55,13 @@ const SearchResults = ({ results, onSelectResult, isVisible }) => {
     onSelectResult(cleanResult);
   };
 
-  // Рассчитываем высоту контейнера результатов
-  const resultsHeight = screenHeight - keyboardHeight; // 140px - примерная высота верхней части экрана
+  // Рассчитываем высоту списка результатов, учитывая клавиатуру
+  const resultsHeight = screenHeight - keyboardHeight; // 140px для верхней панели и поиска
 
   return (
-    <View style={[styles.container, { maxHeight: resultsHeight }]}>
+    <View style={[styles.container, { height: resultsHeight }]}>
       <ScrollView 
-        style={[styles.scrollView, { maxHeight: resultsHeight }]}
+        style={styles.scrollView}
         keyboardShouldPersistTaps="always"
         contentContainerStyle={styles.scrollContent}
       >
@@ -102,23 +102,21 @@ const SearchResults = ({ results, onSelectResult, isVisible }) => {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 0, // Позиция под строкой поиска
+    top: 0,
     left: 0,
     right: 0,
     backgroundColor: 'white',
-    elevation: 8,
-    zIndex: 9,
     paddingTop: 115,
+    zIndex: 9,
   },
   scrollView: {
-    width: '100%',
+    flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    paddingHorizontal: 16,
   },
   resultItem: {
-    paddingVertical: 14,
+    padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
@@ -126,7 +124,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#f5f5f5',
   },
   resultContent: {
-    flexDirection: 'column',
+    flex: 1,
   },
   resultName: {
     fontSize: 16,
@@ -140,9 +138,8 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   resultDistance: {
-    fontSize: 12,
-    color: theme.colors.textTertiary,
-    marginTop: 2,
+    fontSize: 14,
+    color: theme.colors.primary,
   },
 });
 
