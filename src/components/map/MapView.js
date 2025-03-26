@@ -195,6 +195,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
   },
   map: {
     width: '100%',
@@ -203,4 +206,3 @@ const styles = StyleSheet.create({
 });
 
 export default MapViewComponent;
-

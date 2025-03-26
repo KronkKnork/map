@@ -19,7 +19,7 @@ import { theme } from '../theme';
 const Tab = createBottomTabNavigator();
 
 // Компонент для кастомной иконки таба
-const TabBarIcon = ({ focused, name, label }) => {
+const TabIcon = ({ focused, name, label }) => {
   return (
     <View style={styles.tabIconContainer}>
       <Ionicons 
@@ -29,7 +29,7 @@ const TabBarIcon = ({ focused, name, label }) => {
       />
       <Text 
         style={[styles.tabLabel, { color: focused ? theme.colors.primary : theme.colors.textSecondary }]}
-        numberOfLines={1} 
+        numberOfLines={1}
         ellipsizeMode="tail"
       >
         {label}
@@ -68,7 +68,7 @@ export const TabNavigator = () => {
               iconName = 'help-outline';
           }
 
-          return <TabBarIcon focused={focused} name={iconName} label={getLabelForRoute(route.name)} />;
+          return <TabIcon focused={focused} name={iconName} label={getLabelForRoute(route.name)} />;
         },
         tabBarStyle: styles.tabBar,
         tabBarItemStyle: styles.tabItem,
@@ -138,11 +138,11 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   tabLabel: {
-    fontSize: 10, 
+    fontSize: 11, 
     marginTop: 2,
     fontWeight: '500',
-    textAlign: 'center', 
-    width: '100%', 
+    textAlign: 'center',
+    width: '100%',
   },
   tabBar: {
     backgroundColor: theme.colors.background,
@@ -150,16 +150,17 @@ const styles = StyleSheet.create({
     borderTopColor: theme.colors.border,
     elevation: 8,
     shadowColor: theme.colors.shadowMedium,
-    height: 60, 
-    paddingTop: 6,
-    paddingBottom: 6,
+    height: 70, 
+    paddingTop: 8,
+    paddingBottom: 8,
     justifyContent: 'center', 
     alignItems: 'center', 
   },
   tabItem: {
-    height: 50, 
-    paddingVertical: 4, 
-    paddingHorizontal: 8, 
+    flex: 1, 
+    height: 60, 
+    paddingVertical: 5, 
+    paddingHorizontal: 5, 
   },
 });
 

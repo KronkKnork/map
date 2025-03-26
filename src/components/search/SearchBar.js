@@ -28,8 +28,8 @@ const SearchBar = ({
   // Функция-обработчик нажатия на кнопку
   const handleButtonPress = () => {
     if (value.trim() === '') {
-      onClear?.();
-      Keyboard.dismiss();
+      // Если поле пустое, запускаем голосовой поиск
+      // В реальной реализации здесь должна быть логика для голосового поиска
     } else {
       // Если есть текст, очищаем поле
       onChangeText?.('');
@@ -39,33 +39,35 @@ const SearchBar = ({
   
   return (
     <View style={styles.container}>
-      <TextInput
-        ref={inputRef}
-        style={styles.input}
-        placeholder="Поиск мест и адресов"
-        placeholderTextColor={theme.colors.placeholder}
-        value={value}
-        onChangeText={onChangeText}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        onSubmitEditing={onSubmit}
-        returnKeyType="search"
-        clearButtonMode="while-editing"
-      />
+      <View style={styles.searchInputContainer}>
+        <Ionicons name="search" size={20} color={theme.colors.textSecondary} style={styles.searchIcon} />
+        <TextInput
+          ref={inputRef}
+          style={styles.input}
+          placeholder="Поиск мест и адресов"
+          placeholderTextColor={theme.colors.placeholder}
+          value={value}
+          onChangeText={onChangeText}
+          onFocus={onFocus}
+          onBlur={onBlur}
+          onSubmitEditing={onSubmit}
+          returnKeyType="search"
+        />
+      </View>
       
       {isLoading ? (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="small" color={theme.colors.primary} />
+        <View style={styles.actionButton}>
+          <ActivityIndicator size="small" color="#FFF" />
         </View>
       ) : (
         <TouchableOpacity
-          style={styles.button}
+          style={styles.actionButton}
           onPress={handleButtonPress}
         >
           <Ionicons
-            name={value ? 'close' : 'search'}
-            size={24}
-            color={theme.colors.primary}
+            name={value ? 'close' : 'mic'}
+            size={20}
+            color="#FFF"
           />
         </TouchableOpacity>
       )}
@@ -75,39 +77,47 @@ const SearchBar = ({
 
 const styles = StyleSheet.create({
   container: {
-    position: 'absolute',
-    top: 10,
-    left: 10,
-    right: 10,
     flexDirection: 'row',
     backgroundColor: 'white',
-    borderRadius: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    borderRadius: 12,
+    shadowColor: "#606470",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 8,
     zIndex: 10,
+    alignItems: 'center',
+  },
+  searchInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  searchIcon: {
+    marginLeft: 16,
+    marginRight: 8,
   },
   input: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     fontSize: 16,
     color: "#333",
   },
-  button: {
-    padding: 12,
+  actionButton: {
+    backgroundColor: '#5853FC',
+    width: 40,
+    height: 40,
+    borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 6,
+    marginVertical: 6,
   },
   loaderContainer: {
     padding: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    width: 48,
-    height: 48,
-  }
+  },
 });
 
-export default SearchBar; 
+export default SearchBar;

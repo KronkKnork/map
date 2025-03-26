@@ -91,6 +91,25 @@ const MapScreen = () => {
   // Рендер компонента
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.searchContainer}>
+        <SearchBar
+          value={searchText}
+          onChangeText={handleSearchTextChange}
+          onSubmit={() => handleSearch()}
+          onFocus={() => setIsSearchFocused(true)}
+          onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
+          onClear={() => handleSearchTextChange('')}
+          isLoading={isSearchLoading}
+        />
+      </View>
+      
+      {/* Результаты поиска */}
+      <SearchResults
+        results={searchResults}
+        onSelectResult={handleSelectSearchResultWrapper}
+        isVisible={isSearchFocused && searchResults.length > 0}
+      />
+      
       <View style={styles.mapContainer}>
         <MapViewComponent
           ref={mapRef}
@@ -129,24 +148,6 @@ const MapScreen = () => {
             </View>
           )}
         </MapViewComponent>
-
-        {/* Строка поиска */}
-        <SearchBar
-          value={searchText}
-          onChangeText={handleSearchTextChange}
-          onSubmit={() => handleSearch()}
-          onFocus={() => setIsSearchFocused(true)}
-          onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
-          onClear={() => handleSearchTextChange('')}
-          isLoading={isSearchLoading}
-        />
-
-        {/* Результаты поиска */}
-        <SearchResults
-          results={searchResults}
-          onSelectResult={handleSelectSearchResultWrapper}
-          isVisible={isSearchFocused && searchResults.length > 0}
-        />
 
         {/* Кнопка центрирования на текущем местоположении */}
         <TouchableOpacity
@@ -202,64 +203,21 @@ const MapScreen = () => {
             </View>
           )}
         </View>
-
-        {/* Информация о выбранном месте */}
-        {selectedLocation && !isRouting && selectedPlaceInfo && (
-          <View style={styles.selectedPlaceContainer}>
-            <View style={styles.selectedPlaceContent}>
-              <Text style={styles.selectedPlaceName}>{selectedPlaceInfo.name || "Выбранное место"}</Text>
-              {selectedPlaceInfo.address && (
-                <Text style={styles.selectedPlaceAddress}>{selectedPlaceInfo.address}</Text>
-              )}
-              {selectedPlaceInfo.distance && (
-                <Text style={styles.selectedPlaceDistance}>
-                  {selectedPlaceInfo.distance < 1 
-                    ? `${Math.round(selectedPlaceInfo.distance * 1000)} м от вас` 
-                    : `${selectedPlaceInfo.distance.toFixed(1)} км от вас`}
-                </Text>
-              )}
-            </View>
-            <View style={styles.selectedPlaceActions}>
-              <TouchableOpacity
-                style={styles.locationAction}
-                onPress={() => handleStartRouting(false)}
-              >
-                <Ionicons name="navigate" size={20} color="white" />
-                <Text style={styles.locationActionText}>Сюда</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.locationAction}
-                onPress={() => handleStartRouting(true)}
-              >
-                <Ionicons name="arrow-up" size={20} color="white" />
-                <Text style={styles.locationActionText}>Отсюда</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* Панель маршрута */}
-        {isRouting && (
-          <RouteBottomPanel
-            route={{
-              origin: getRouteEndpoints().origin,
-              destination: getRouteEndpoints().destination
-            }}
-            routeInfo={routeDetails}
-            onCancel={handleCancelRouting}
-            onStartNavigation={() => {
-              Alert.alert("Навигация", "Функция навигации будет доступна в следующей версии приложения");
-            }}
-            onRouteTypeChange={handleRouteTypeChange}
-            originName={getRouteEndpoints().originInfo?.name}
-            destinationName={getRouteEndpoints().destinationInfo?.name}
-            activeRouteType={getTransportTypeFromMode(routeMode)}
-            allRoutes={allRoutes}
-            routesLoading={routesLoading}
-            onSwapDirection={() => setIsReverseRoute(!isReverseRoute)}
-          />
-        )}
       </View>
+
+      {/* Панель маршрута внизу */}
+      {isRouting && !isCurrentRouteLoading() && (
+        <RouteBottomPanel
+          routeDetails={routeDetails}
+          allRoutes={allRoutes}
+          routeMode={routeMode}
+          isReverseRoute={isReverseRoute}
+          onCancelRoute={handleCancelRouting}
+          onReverseRoute={() => setIsReverseRoute(!isReverseRoute)}
+          onRouteTypeChange={handleRouteTypeChange}
+          isLoading={routesLoading}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -267,138 +225,89 @@ const MapScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
+    backgroundColor: theme.colors.background,
+  },
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    backgroundColor: theme.colors.background,
+    zIndex: 10,
   },
   mapContainer: {
     flex: 1,
     position: 'relative',
-  },
-  mapControlsContainer: {
-    position: 'absolute',
-    right: 10,
-    top: 70,
-    zIndex: 5,
+    marginTop: 10,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
   },
   mapControl: {
-    backgroundColor: 'white',
-    borderRadius: 30,
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.background,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
     marginBottom: 10,
+    shadowColor: theme.colors.shadowDark,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   locationButton: {
     position: 'absolute',
-    bottom: 80,
-    right: 10,
-    zIndex: 5,
+    right: 16,
+    bottom: 100,
+  },
+  mapControlsContainer: {
+    position: 'absolute',
+    right: 16,
+    top: 16,
   },
   layersButton: {
-    marginBottom: 10,
+    marginBottom: 0,
   },
   layersMenu: {
-    backgroundColor: 'white',
+    position: 'absolute',
+    top: 50,
+    right: 0,
+    backgroundColor: theme.colors.background,
     borderRadius: 8,
-    padding: 8,
-    shadowColor: "#000",
+    shadowColor: theme.colors.shadowDark,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    marginBottom: 10,
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
+    padding: 8,
+    width: 120,
   },
   layerOption: {
-    padding: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
     borderRadius: 4,
   },
   activeLayerOption: {
-    backgroundColor: theme.colors.primary + '20',
+    backgroundColor: theme.colors.primaryLight,
   },
   layerOptionText: {
-    color: "#333",
+    color: theme.colors.textPrimary,
     fontSize: 14,
-  },
-  selectedPlaceContainer: {
-    position: 'absolute',
-    bottom: 20,
-    left: 10,
-    right: 10,
-    backgroundColor: 'white',
-    borderRadius: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    flexDirection: 'row',
-  },
-  selectedPlaceContent: {
-    flex: 1,
-    padding: 15,
-  },
-  selectedPlaceName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 4,
-    color: "#333",
-  },
-  selectedPlaceAddress: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
-  },
-  selectedPlaceDistance: {
-    fontSize: 14,
-    color: theme.colors.primary,
-  },
-  selectedPlaceActions: {
-    flexDirection: 'row',
-    padding: 8,
-    alignItems: 'center',
-  },
-  locationAction: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginHorizontal: 4,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  locationActionText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500',
-    marginLeft: 4,
   },
   routeLoadingContainer: {
     position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: [{ translateX: -100 }, { translateY: -40 }],
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 12,
-    padding: 16,
-    width: 200,
-    alignItems: 'center',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: 'center',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   routeLoadingText: {
-    marginTop: 8,
+    marginTop: 10,
     color: theme.colors.textPrimary,
-    fontSize: 14,
+    fontSize: 16,
     textAlign: 'center',
   },
 });

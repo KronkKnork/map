@@ -1,11 +1,35 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Pressable } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, Dimensions, Keyboard } from 'react-native';
 import { theme } from '../../theme';
 
 /**
  * Компонент для отображения результатов поиска
  */
 const SearchResults = ({ results, onSelectResult, isVisible }) => {
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const screenHeight = Dimensions.get('window').height;
+  
+  // Отслеживаем высоту клавиатуры
+  useEffect(() => {
+    const keyboardDidShowListener = Keyboard.addListener(
+      'keyboardDidShow',
+      (event) => {
+        setKeyboardHeight(event.endCoordinates.height);
+      }
+    );
+    const keyboardDidHideListener = Keyboard.addListener(
+      'keyboardDidHide',
+      () => {
+        setKeyboardHeight(0);
+      }
+    );
+
+    return () => {
+      keyboardDidShowListener.remove();
+      keyboardDidHideListener.remove();
+    };
+  }, []);
+
   if (!isVisible || !results || results.length === 0) {
     return null;
   }
@@ -31,10 +55,13 @@ const SearchResults = ({ results, onSelectResult, isVisible }) => {
     onSelectResult(cleanResult);
   };
 
+  // Рассчитываем высоту контейнера результатов
+  const resultsHeight = screenHeight - keyboardHeight; // 140px - примерная высота верхней части экрана
+
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { maxHeight: resultsHeight }]}>
       <ScrollView 
-        style={styles.scrollView}
+        style={[styles.scrollView, { maxHeight: resultsHeight }]}
         keyboardShouldPersistTaps="always"
         contentContainerStyle={styles.scrollContent}
       >
@@ -75,53 +102,48 @@ const SearchResults = ({ results, onSelectResult, isVisible }) => {
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
-    top: 58,
-    left: 10,
-    right: 10,
+    top: 0, // Позиция под строкой поиска
+    left: 0,
+    right: 0,
     backgroundColor: 'white',
-    borderRadius: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    maxHeight: 300,
-    zIndex: 99,
+    elevation: 8,
+    zIndex: 9,
+    paddingTop: 115,
   },
   scrollView: {
-    maxHeight: 300,
+    width: '100%',
   },
   scrollContent: {
     flexGrow: 1,
+    paddingHorizontal: 16,
   },
   resultItem: {
-    padding: 12,
+    paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
   resultItemPressed: {
-    backgroundColor: '#f0f0f0',
+    backgroundColor: '#f5f5f5',
   },
   resultContent: {
     flexDirection: 'column',
-    justifyContent: 'flex-start',
   },
   resultName: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: "#333",
+    fontWeight: '500',
+    color: theme.colors.textPrimary,
     marginBottom: 4,
   },
   resultAddress: {
     fontSize: 14,
-    color: "#666",
+    color: theme.colors.textSecondary,
     marginBottom: 2,
   },
   resultDistance: {
-    fontSize: 14,
-    color: theme.colors.primary,
-    textAlign: 'right',
+    fontSize: 12,
+    color: theme.colors.textTertiary,
+    marginTop: 2,
   },
 });
 
-export default SearchResults; 
+export default SearchResults;
