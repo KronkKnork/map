@@ -85,8 +85,11 @@ export const useSearch = ({ location, calculateDistance }) => {
         
         console.log(`Получено ${results.length} результатов поиска`);
         
+        // Сортируем результаты поиска
+        const sortedResults = sortSearchResults(results, userCoords);
+        
         // Устанавливаем результаты (они уже отсортированы по расстоянию в API)
-        setSearchResults(results);
+        setSearchResults(sortedResults);
       })
       .catch(error => {
         // Скрываем индикатор загрузки
@@ -271,6 +274,44 @@ export const useSearch = ({ location, calculateDistance }) => {
     } catch (error) {
       console.error('Ошибка при обработке нажатия на карту:', error);
     }
+  };
+
+  // Функция для сортировки результатов поиска
+  const sortSearchResults = (results, userCoords) => {
+    if (!results || !results.length) return [];
+    
+    // Копируем массив, чтобы не изменять исходный
+    const resultsCopy = [...results];
+    
+    // Если есть местоположение пользователя, сортируем по расстоянию
+    if (userCoords) {
+      // Добавляем расстояние и флаг локальности для каждого результата
+      resultsCopy.forEach(result => {
+        // Рассчитываем расстояние
+        const distance = calculateDistance(
+          userCoords.latitude, 
+          userCoords.longitude,
+          result.latitude,
+          result.longitude
+        );
+        
+        result.distance = distance;
+        // Флаг локальности (в радиусе 50 км)
+        result.isLocal = distance <= 50;
+      });
+      
+      // Сортируем: сначала локальные, затем по расстоянию
+      resultsCopy.sort((a, b) => {
+        // Локальные результаты первыми
+        if (a.isLocal && !b.isLocal) return -1;
+        if (!a.isLocal && b.isLocal) return 1;
+        
+        // Затем по расстоянию
+        return a.distance - b.distance;
+      });
+    }
+    
+    return resultsCopy;
   };
 
   // Очистка при размонтировании компонента

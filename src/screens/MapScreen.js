@@ -39,7 +39,6 @@ const MapScreen = () => {
     selectedPlaceInfo,
     setIsSearchFocused,
     handleSearchTextChange,
-    handleSearch,
     handleSelectSearchResult,
     handleMapPress
   } = useSearch({ location, calculateDistance });
@@ -109,12 +108,21 @@ const MapScreen = () => {
       
       {/* Результаты поиска */}
       <SearchResults
-        results={searchResults}
-        onSelectResult={(result) => {
+        results={searchResults.map(result => ({
+          ...result,
+          searchText: searchText
+        }))}
+        onSelectPlace={(result) => {
           handleSelectSearchResultWrapper(result);
           Keyboard.dismiss();
         }}
-        isVisible={isSearchFocused && searchResults.length > 0}
+        loading={isSearchLoading}
+        visible={isSearchFocused && (searchResults.length > 0 || isSearchLoading)}
+        onClose={() => {
+          setIsSearchFocused(false);
+          Keyboard.dismiss();
+        }}
+        searchQuery={searchText}
       />
       
       <View style={styles.mapContainer}>
