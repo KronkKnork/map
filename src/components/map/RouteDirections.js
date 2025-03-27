@@ -142,6 +142,7 @@ const RouteDirections = ({
   const isMountedRef = useRef(true);
   const lastRequestTimeRef = useRef(0);
   const initializedRef = useRef(false);
+  const activeRequestRef = useRef(false); // Новая ссылка для отслеживания активного запроса
   
   // Создаем кэш маршрутов если он не существует
   if (!window.routeRequestsCache) {
@@ -162,23 +163,30 @@ const RouteDirections = ({
   }
   
   // Очистить запрос из списка активных
-  const clearRequestFromCurrent = (requestParams) => {
-    if (window.currentRouteRequests.has(requestParams)) {
+  const clearRequestFromCurrent = useCallback((requestParams) => {
+    if (window.currentRouteRequests && window.currentRouteRequests.has(requestParams)) {
       window.currentRouteRequests.delete(requestParams);
     }
     
     // Удаляем отметку из requestsInProgress
-    if (window.requestsInProgress[requestParams]) {
+    if (window.requestsInProgress && window.requestsInProgress[requestParams]) {
       delete window.requestsInProgress[requestParams];
     }
-  };
+    
+    // Сбрасываем флаг активного запроса
+    activeRequestRef.current = false;
+  }, []);
   
   // Безопасное обновление состояния только если компонент смонтирован
-  const safeSetState = (setter, value) => {
+  const safeSetState = useCallback((setter, value) => {
     if (isMountedRef.current) {
-      setter(value);
+      try {
+        setter(value);
+      } catch (error) {
+        console.error('Ошибка при обновлении состояния:', error);
+      }
     }
-  };
+  }, []);
   
   // Функция для получения цвета в зависимости от трафика (от 0 до 10)
   const getTrafficColor = useCallback((trafficValue) => {
@@ -336,16 +344,18 @@ const RouteDirections = ({
   }, [coordinates, trafficData, mode, getRouteWidth, getRouteLinePattern, getTrafficColor, getRouteStrokeStyle]);
   
   // Функция для проверки валидности координат
-  const areValidCoordinates = (coords) => {
+  const areValidCoordinates = useCallback((coords) => {
     return (
       coords && 
       typeof coords === 'object' &&
       typeof coords.latitude === 'number' && 
       typeof coords.longitude === 'number' && 
       !isNaN(coords.latitude) && 
-      !isNaN(coords.longitude)
+      !isNaN(coords.longitude) &&
+      coords.latitude >= -90 && coords.latitude <= 90 &&
+      coords.longitude >= -180 && coords.longitude <= 180
     );
-  };
+  }, []);
   
   // Ключевой эффект для запроса маршрута при изменении входных данных
   useEffect(() => {
@@ -360,15 +370,19 @@ const RouteDirections = ({
       safeSetState(setRouteInfo, null);
       safeSetState(setTrafficData, []);
       
-      if (onRouteReady) {
-        onRouteReady({
-          coordinates: [],
-          distance: 0,
-          duration: 0,
-          isApproximate: true,
-          mode: mode,
-          error: "INVALID_COORDINATES"
-        });
+      if (onRouteReady && typeof onRouteReady === 'function') {
+        try {
+          onRouteReady({
+            coordinates: [],
+            distance: 0,
+            duration: 0,
+            isApproximate: true,
+            mode: mode,
+            error: "INVALID_COORDINATES"
+          });
+        } catch (callbackError) {
+          console.error('Ошибка при вызове onRouteReady:', callbackError);
+        }
       }
       return;
     }
@@ -384,38 +398,64 @@ const RouteDirections = ({
       safeSetState(setRouteInfo, null);
       safeSetState(setTrafficData, []);
       
-      if (onRouteReady) {
-        onRouteReady({
-          coordinates: [],
-          distance: 0,
-          duration: 0,
-          isApproximate: true,
-          mode: mode,
-          error: "SAME_COORDINATES"
-        });
+      if (onRouteReady && typeof onRouteReady === 'function') {
+        try {
+          onRouteReady({
+            coordinates: [],
+            distance: 0,
+            duration: 0,
+            isApproximate: true,
+            mode: mode,
+            error: "SAME_COORDINATES"
+          });
+        } catch (callbackError) {
+          console.error('Ошибка при вызове onRouteReady:', callbackError);
+        }
       }
       return;
     }
     
     // Формируем строку с параметрами запроса для кэширования и проверки
-    const requestParams = JSON.stringify({
-      originLat: origin.latitude.toFixed(6),
-      originLng: origin.longitude.toFixed(6),
-      destLat: destination.latitude.toFixed(6),
-      destLng: destination.longitude.toFixed(6),
-      mode: mode,
-    });
+    let requestParams;
+    try {
+      requestParams = JSON.stringify({
+        originLat: origin.latitude.toFixed(6),
+        originLng: origin.longitude.toFixed(6),
+        destLat: destination.latitude.toFixed(6),
+        destLng: destination.longitude.toFixed(6),
+        mode: mode,
+      });
+    } catch (error) {
+      console.error('Ошибка при формировании параметров запроса:', error);
+      return;
+    }
     
     // Проверяем, выполняется ли уже запрос с такими же параметрами
-    if (window.currentRouteRequests.has(requestParams)) {
+    if (window.currentRouteRequests && window.currentRouteRequests.has(requestParams)) {
       console.log(`RouteDirections: запрос с параметрами ${requestParams} уже выполняется`);
       return;
     }
+    
+    // Проверяем, есть ли уже активный запрос для этого компонента
+    if (activeRequestRef.current) {
+      console.log('RouteDirections: уже есть активный запрос, отменяем его');
+      if (abortControllerRef.current) {
+        try {
+          abortControllerRef.current.abort();
+        } catch (abortError) {
+          console.error('Ошибка при отмене предыдущего запроса:', abortError);
+        }
+      }
+    }
+    
+    // Устанавливаем флаг активного запроса
+    activeRequestRef.current = true;
     
     // Проверяем, был ли недавно выполнен запрос
     const currentTime = Date.now();
     if (currentTime - window.lastRouteRequestTime < MIN_REQUEST_INTERVAL) {
       console.log(`RouteDirections: слишком частые запросы, пропускаем`);
+      activeRequestRef.current = false;
       return;
     }
     
@@ -424,7 +464,7 @@ const RouteDirections = ({
     lastRequestTimeRef.current = currentTime;
     
     // Проверяем кэш маршрутов
-    if (window.routeRequestsCache[requestParams]) {
+    if (window.routeRequestsCache && window.routeRequestsCache[requestParams]) {
       const cachedData = window.routeRequestsCache[requestParams];
       const cachedTimestamp = cachedData.timestamp || 0;
       
@@ -432,35 +472,46 @@ const RouteDirections = ({
       if (currentTime - cachedTimestamp < 10 * 60 * 1000) {
         console.log(`RouteDirections: используем кэшированный маршрут для режима ${mode}`);
         
-        safeSetState(setCoordinates, cachedData.coordinates || []);
-        safeSetState(setRouteInfo, {
-          distance: cachedData.distance || 0,
-          duration: cachedData.duration || 0,
-          isApproximate: cachedData.isApproximate || false
-        });
-        
-        if (cachedData.trafficData) {
-          safeSetState(setTrafficData, cachedData.trafficData || []);
-        }
-        
-        if (onRouteReady && isMountedRef.current) {
-          onRouteReady({
-            coordinates: cachedData.coordinates || [],
+        try {
+          safeSetState(setCoordinates, cachedData.coordinates || []);
+          safeSetState(setRouteInfo, {
             distance: cachedData.distance || 0,
             duration: cachedData.duration || 0,
-            isApproximate: cachedData.isApproximate || false,
-            mode: mode,
-            trafficData: cachedData.trafficData || []
+            isApproximate: cachedData.isApproximate || false
           });
+          
+          if (cachedData.trafficData) {
+            safeSetState(setTrafficData, cachedData.trafficData || []);
+          }
+          
+          if (onRouteReady && typeof onRouteReady === 'function' && isMountedRef.current) {
+            try {
+              onRouteReady({
+                coordinates: cachedData.coordinates || [],
+                distance: cachedData.distance || 0,
+                duration: cachedData.duration || 0,
+                isApproximate: cachedData.isApproximate || false,
+                mode: mode,
+                trafficData: cachedData.trafficData || []
+              });
+            } catch (callbackError) {
+              console.error('Ошибка при вызове onRouteReady с кэшированными данными:', callbackError);
+            }
+          }
+          
+          activeRequestRef.current = false;
+          return;
+        } catch (cacheError) {
+          console.error('Ошибка при использовании кэшированных данных:', cacheError);
+          // Продолжаем выполнение и запрашиваем маршрут заново
         }
-        
-        return;
       }
     }
     
     // Если параметры не изменились с момента последнего запроса, не делаем новый запрос
     if (requestParams === lastRequestParamsRef.current && routeFetchedRef.current) {
       console.log('RouteDirections: параметры запроса не изменились, пропускаем повторный запрос');
+      activeRequestRef.current = false;
       return;
     }
     
@@ -468,16 +519,22 @@ const RouteDirections = ({
     if (window.mapEaseApiBlocked) {
       console.log('RouteDirections: API заблокирован из-за предыдущих ошибок');
       
-      if (onRouteReady) {
-        onRouteReady({
-          coordinates: [],
-          distance: 0,
-          duration: 0,
-          isApproximate: true,
-          mode: mode,
-          error: "API_ACCESS_DENIED"
-        });
+      if (onRouteReady && typeof onRouteReady === 'function') {
+        try {
+          onRouteReady({
+            coordinates: [],
+            distance: 0,
+            duration: 0,
+            isApproximate: true,
+            mode: mode,
+            error: "API_ACCESS_DENIED"
+          });
+        } catch (callbackError) {
+          console.error('Ошибка при вызове onRouteReady с ошибкой API:', callbackError);
+        }
       }
+      
+      activeRequestRef.current = false;
       return;
     }
     
@@ -485,33 +542,66 @@ const RouteDirections = ({
     lastRequestParamsRef.current = requestParams;
     
     // Добавляем запрос в список активных
-    window.currentRouteRequests.add(requestParams);
-    window.requestsInProgress[requestParams] = true;
+    if (window.currentRouteRequests) {
+      window.currentRouteRequests.add(requestParams);
+    }
+    
+    if (window.requestsInProgress) {
+      window.requestsInProgress[requestParams] = true;
+    }
     
     console.log(`RouteDirections: запрашиваем маршрут для режима ${mode}`);
     
     // Отменяем предыдущий запрос если он есть
     if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+      try {
+        abortControllerRef.current.abort();
+      } catch (abortError) {
+        console.error('Ошибка при отмене предыдущего запроса:', abortError);
+      }
     }
     
     // Создаем новый контроллер отмены
-    abortControllerRef.current = new AbortController();
+    try {
+      abortControllerRef.current = new AbortController();
+    } catch (controllerError) {
+      console.error('Ошибка при создании AbortController:', controllerError);
+      activeRequestRef.current = false;
+      clearRequestFromCurrent(requestParams);
+      return;
+    }
     
     // Устанавливаем таймаут для запроса (10 секунд максимум)
-    const timeoutId = setTimeout(() => {
-      if (abortControllerRef.current) {
-        console.log('RouteDirections: превышено время ожидания запроса, отмена');
-        abortControllerRef.current.abort();
-        clearRequestFromCurrent(requestParams);
-      }
-    }, 10000);
+    let timeoutId;
+    try {
+      timeoutId = setTimeout(() => {
+        if (abortControllerRef.current) {
+          console.log('RouteDirections: превышено время ожидания запроса, отмена');
+          try {
+            abortControllerRef.current.abort();
+          } catch (abortError) {
+            console.error('Ошибка при отмене запроса по таймауту:', abortError);
+          }
+          clearRequestFromCurrent(requestParams);
+          activeRequestRef.current = false;
+        }
+      }, 10000);
+    } catch (timeoutError) {
+      console.error('Ошибка при установке таймаута:', timeoutError);
+      timeoutId = null;
+    }
     
     // Запрашиваем маршрут
     fetchRouteDirections(origin, destination, waypoints, mode, abortControllerRef.current.signal)
       .then(result => {
         // Очищаем таймаут
-        clearTimeout(timeoutId);
+        if (timeoutId) {
+          try {
+            clearTimeout(timeoutId);
+          } catch (clearError) {
+            console.error('Ошибка при очистке таймаута:', clearError);
+          }
+        }
         
         // Удаляем запрос из списка активных
         clearRequestFromCurrent(requestParams);
@@ -535,21 +625,25 @@ const RouteDirections = ({
           safeSetState(setTrafficData, []);
           
           // Уведомляем родительский компонент
-          if (onRouteReady && isMountedRef.current) {
-            onRouteReady({
-              coordinates: [],
-              distance: 0,
-              duration: 0,
-              isApproximate: true,
-              mode: mode,
-              error: "API_ACCESS_DENIED"
-            });
+          if (onRouteReady && typeof onRouteReady === 'function' && isMountedRef.current) {
+            try {
+              onRouteReady({
+                coordinates: [],
+                distance: 0,
+                duration: 0,
+                isApproximate: true,
+                mode: mode,
+                error: "API_ACCESS_DENIED"
+              });
+            } catch (callbackError) {
+              console.error('Ошибка при вызове onRouteReady с ошибкой доступа к API:', callbackError);
+            }
           }
           return;
         }
         
         // Проверяем успешность результата
-        if (result && result.coordinates && result.coordinates.length > 0) {
+        if (result && result.coordinates && Array.isArray(result.coordinates) && result.coordinates.length > 0) {
           console.log(`RouteDirections: получен маршрут для режима ${mode}: ${result.coordinates.length} точек`);
           
           // Отмечаем успешное получение маршрута
@@ -559,30 +653,36 @@ const RouteDirections = ({
           window.mapEaseApiBlocked = false;
           
           // Кэшируем результат
-          window.routeRequestsCache[requestParams] = {
-            ...result,
-            timestamp: Date.now()
-          };
-          
-          // Очищаем старые записи кэша
-          const cacheKeys = Object.keys(window.routeRequestsCache);
-          if (cacheKeys.length > MAX_CACHE_SIZE) {
-            const sortedKeys = cacheKeys.sort((a, b) => {
-              return (window.routeRequestsCache[a].timestamp || 0) - (window.routeRequestsCache[b].timestamp || 0);
-            });
-            
-            // Удаляем самые старые записи
-            const keysToDelete = sortedKeys.slice(0, cacheKeys.length - MAX_CACHE_SIZE);
-            keysToDelete.forEach(key => {
-              delete window.routeRequestsCache[key];
-            });
+          if (window.routeRequestsCache) {
+            try {
+              window.routeRequestsCache[requestParams] = {
+                ...result,
+                timestamp: Date.now()
+              };
+              
+              // Очищаем старые записи кэша
+              const cacheKeys = Object.keys(window.routeRequestsCache);
+              if (cacheKeys.length > MAX_CACHE_SIZE) {
+                const sortedKeys = cacheKeys.sort((a, b) => {
+                  return (window.routeRequestsCache[a].timestamp || 0) - (window.routeRequestsCache[b].timestamp || 0);
+                });
+                
+                // Удаляем самые старые записи
+                const keysToDelete = sortedKeys.slice(0, cacheKeys.length - MAX_CACHE_SIZE);
+                keysToDelete.forEach(key => {
+                  delete window.routeRequestsCache[key];
+                });
+              }
+            } catch (cacheError) {
+              console.error('Ошибка при кэшировании результата:', cacheError);
+            }
           }
           
           // Обновляем состояние
           safeSetState(setCoordinates, result.coordinates);
           safeSetState(setRouteInfo, {
-            distance: result.distance,
-            duration: result.duration,
+            distance: result.distance || 0,
+            duration: result.duration || 0,
             isApproximate: result.isApproximate || false
           });
           
@@ -594,15 +694,19 @@ const RouteDirections = ({
           }
           
           // Уведомляем родительский компонент
-          if (onRouteReady && isMountedRef.current) {
-            onRouteReady({
-              coordinates: result.coordinates,
-              distance: result.distance,
-              duration: result.duration,
-              isApproximate: result.isApproximate || false,
-              mode: mode,
-              trafficData: result.trafficData
-            });
+          if (onRouteReady && typeof onRouteReady === 'function' && isMountedRef.current) {
+            try {
+              onRouteReady({
+                coordinates: result.coordinates,
+                distance: result.distance || 0,
+                duration: result.duration || 0,
+                isApproximate: result.isApproximate || false,
+                mode: mode,
+                trafficData: result.trafficData || []
+              });
+            } catch (callbackError) {
+              console.error('Ошибка при вызове onRouteReady с успешным результатом:', callbackError);
+            }
           }
         } else {
           console.log('RouteDirections: получен пустой результат');
@@ -613,21 +717,31 @@ const RouteDirections = ({
           safeSetState(setTrafficData, []);
           
           // Уведомляем родительский компонент
-          if (onRouteReady && isMountedRef.current) {
-            onRouteReady({
-              coordinates: [],
-              distance: 0,
-              duration: 0,
-              isApproximate: true,
-              mode: mode,
-              error: "EMPTY_RESPONSE"
-            });
+          if (onRouteReady && typeof onRouteReady === 'function' && isMountedRef.current) {
+            try {
+              onRouteReady({
+                coordinates: [],
+                distance: 0,
+                duration: 0,
+                isApproximate: true,
+                mode: mode,
+                error: "EMPTY_RESPONSE"
+              });
+            } catch (callbackError) {
+              console.error('Ошибка при вызове onRouteReady с пустым результатом:', callbackError);
+            }
           }
         }
       })
       .catch(error => {
         // Очищаем таймаут
-        clearTimeout(timeoutId);
+        if (timeoutId) {
+          try {
+            clearTimeout(timeoutId);
+          } catch (clearError) {
+            console.error('Ошибка при очистке таймаута в catch:', clearError);
+          }
+        }
         
         // Удаляем запрос из списка активных
         clearRequestFromCurrent(requestParams);
@@ -645,15 +759,19 @@ const RouteDirections = ({
           safeSetState(setTrafficData, []);
           
           // Уведомляем родительский компонент
-          if (onRouteReady && isMountedRef.current) {
-            onRouteReady({
-              coordinates: [],
-              distance: 0,
-              duration: 0,
-              isApproximate: true,
-              mode: mode,
-              error: "REQUEST_ERROR"
-            });
+          if (onRouteReady && typeof onRouteReady === 'function' && isMountedRef.current) {
+            try {
+              onRouteReady({
+                coordinates: [],
+                distance: 0,
+                duration: 0,
+                isApproximate: true,
+                mode: mode,
+                error: "REQUEST_ERROR"
+              });
+            } catch (callbackError) {
+              console.error('Ошибка при вызове onRouteReady с ошибкой запроса:', callbackError);
+            }
           }
         }
       });
@@ -668,26 +786,48 @@ const RouteDirections = ({
       
       // Отменяем запрос
       if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+        try {
+          abortControllerRef.current.abort();
+        } catch (abortError) {
+          console.error('Ошибка при отмене запроса при размонтировании:', abortError);
+        }
       }
       
       // Очищаем таймеры
       if (timerRef.current) {
-        clearTimeout(timerRef.current);
+        try {
+          clearTimeout(timerRef.current);
+        } catch (clearError) {
+          console.error('Ошибка при очистке timerRef:', clearError);
+        }
       }
       
       // Очищаем таймаут запроса
-      clearTimeout(timeoutId);
+      if (timeoutId) {
+        try {
+          clearTimeout(timeoutId);
+        } catch (clearError) {
+          console.error('Ошибка при очистке timeoutId при размонтировании:', clearError);
+        }
+      }
+      
+      // Сбрасываем флаг активного запроса
+      activeRequestRef.current = false;
     };
-  }, [origin, destination, mode, waypoints, onRouteReady]);
+  }, [origin, destination, mode, waypoints, onRouteReady, areValidCoordinates, safeSetState, clearRequestFromCurrent]);
   
   // Эффект для размонтирования компонента
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
       if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+        try {
+          abortControllerRef.current.abort();
+        } catch (abortError) {
+          console.error('Ошибка при отмене запроса в эффекте размонтирования:', abortError);
+        }
       }
+      activeRequestRef.current = false;
     };
   }, []);
   

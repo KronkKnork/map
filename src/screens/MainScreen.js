@@ -3,7 +3,7 @@ import { StyleSheet, View, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { observer } from 'mobx-react';
 import { theme } from '../theme';
-import { useStore } from '../../App';
+import { useStore } from '../stores/StoreContext';
 
 // Импортируем компоненты главного экрана
 import {

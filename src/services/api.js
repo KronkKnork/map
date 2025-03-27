@@ -498,22 +498,55 @@ export const fetchRouteDirections = async (
     
     const localSignal = signal || controller.signal;
     
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png',
-        'Authorization': OPEN_ROUTE_SERVICE_API_KEY
-      },
-      body: JSON.stringify(requestBody),
-      signal: localSignal
-    });
+    // Добавляем механизм повторных попыток
+    let retries = 2;
+    let response;
+    let lastError;
+    
+    while (retries >= 0) {
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json, application/geo+json, application/gpx+xml, img/png',
+            'Authorization': OPEN_ROUTE_SERVICE_API_KEY
+          },
+          body: JSON.stringify(requestBody),
+          signal: localSignal
+        });
+        
+        if (response.ok) {
+          break; // Успешный ответ, выходим из цикла
+        } else if (response.status === 503) {
+          // Сервис временно недоступен, пробуем еще раз после паузы
+          lastError = `Сервис временно недоступен (503): ${await response.text()}`;
+          console.warn(`API: Сервис временно недоступен, осталось попыток: ${retries}`);
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Пауза 1 секунда
+          }
+        } else {
+          // Другая ошибка, не пытаемся повторить
+          lastError = `Ошибка ${response.status}: ${await response.text()}`;
+          break;
+        }
+      } catch (fetchError) {
+        lastError = fetchError.message;
+        if (fetchError.name !== 'AbortError') {
+          console.error(`API: Ошибка при выполнении запроса: ${fetchError.message}`);
+        } else {
+          break; // Запрос был отменен, не пытаемся повторить
+        }
+      }
+      
+      retries--;
+    }
     
     clearTimeout(timeoutId);
     
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`API: Ошибка запроса маршрута ${mode}: ${response.status}`, errorText);
+    // Если после всех попыток нет успешного ответа
+    if (!response || !response.ok) {
+      console.error(`API: Ошибка запроса маршрута ${mode}: ${lastError}`);
       return createFallbackRoute(origin, destination, mode);
     }
     

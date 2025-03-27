@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   View, 
   Text, 
   StyleSheet, 
-  TouchableOpacity, 
-  ScrollView,
-  ActivityIndicator 
+  TouchableOpacity,
+  ActivityIndicator,
+  ToastAndroid
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
@@ -59,6 +59,48 @@ const RouteTypeTabs = ({
     return loadingState[routeType] === true;
   };
 
+  // Состояние блокировки смены типа маршрута
+  const [isTabChangeLocked, setIsTabChangeLocked] = useState(false);
+  const lastTabChangeTime = useRef(0);
+  
+  // Минимальный интервал между сменой типа маршрута (в мс)
+  const TAB_CHANGE_COOLDOWN = 2500;
+  
+  // Проверка возможности смены типа маршрута
+  const canChangeTab = (newTabId) => {
+    // Если выбираем тот же тип, который уже активен - разрешаем
+    if (newTabId === activeTab) return true;
+    
+    const now = Date.now();
+    const timeSinceLastChange = now - lastTabChangeTime.current;
+    
+    // Если прошло достаточно времени с момента последней смены типа
+    return timeSinceLastChange >= TAB_CHANGE_COOLDOWN;
+  };
+  
+  // Обработчик смены типа маршрута
+  const handleTabChange = (newTabId) => {
+    // Если тип заблокирован, показываем сообщение и не меняем
+    if (!canChangeTab(newTabId)) {
+      ToastAndroid.show('Пожалуйста, подождите немного перед сменой типа маршрута', ToastAndroid.SHORT);
+      return;
+    }
+    
+    // Обновляем время последней смены типа
+    lastTabChangeTime.current = Date.now();
+    
+    // Блокируем смену типа на короткое время
+    setIsTabChangeLocked(true);
+    setTimeout(() => {
+      setIsTabChangeLocked(false);
+    }, TAB_CHANGE_COOLDOWN);
+    
+    // Вызываем функцию смены типа из пропсов
+    if (onTabChange) {
+      onTabChange(newTabId);
+    }
+  };
+
   // Типы маршрутов
   const tabs = [
     {
@@ -101,21 +143,22 @@ const RouteTypeTabs = ({
             <TouchableOpacity
               key={tab.id}
               style={[styles.tab, isActive && styles.activeTab]}
-              onPress={() => onTabChange && onTabChange(tab.id)}
-              disabled={tab.disabled}
+              onPress={() => handleTabChange(tab.id)}
+              disabled={tab.disabled || (isTabChangeLocked && !isActive)}
               activeOpacity={0.7}
             >
               <View style={styles.tabContent}>
                 <Ionicons 
                   name={tab.icon}
                   size={20} 
-                  color={isActive ? 'white' : '#FFFFFF99'} 
+                  color={isActive ? 'white' : (isTabChangeLocked && !isActive) ? '#FFFFFF77' : '#FFFFFF99'} 
                 />
                 
               </View>
               
               {duration !== null && (
-                <Text style={[styles.durationText, isActive && styles.activeDurationText]}>
+                <Text style={[styles.durationText, isActive && styles.activeDurationText, 
+                  (isTabChangeLocked && !isActive) && { opacity: 0.5 }]}>
                   {formattedDuration}
                 </Text>
               )}

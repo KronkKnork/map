@@ -3,7 +3,7 @@ import { StyleSheet, View, Text, TouchableOpacity, Switch, ScrollView, Image } f
 import { observer } from 'mobx-react';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../theme';
-import { useStore } from '../../App';
+import { useStore } from '../stores/StoreContext';
 
 const ProfileScreen = observer(() => {
   const store = useStore();

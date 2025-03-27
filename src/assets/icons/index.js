@@ -5,8 +5,8 @@ import LocationMarkerSvg from './svg/location-marker.svg';
 import DestinationMarkerSvg from './svg/destination-marker.svg';
 import OriginMarkerSvg from './svg/origin-marker.svg';
 import ArrowRightSvg from './svg/arrow-right.svg';
-import ArrowLeftSvg from './svg/arrow-left';
-import SwapSvg from './svg/swap';
+import ArrowLeftSvg from './svg/arrow-left.svg';
+import SwapSvg from './svg/swap.svg';
 
 const createIconComponent = (SvgComponent) => {
   return ({ width = 24, height = 24, color = '#000', ...props }) => {
