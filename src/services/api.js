@@ -433,13 +433,19 @@ export const fetchRouteDirections = async (
     // Проверяем корректность входных данных
     if (!origin || !destination || !origin.latitude || !origin.longitude || !destination.latitude || !destination.longitude) {
       console.error('API: Некорректные координаты для запроса маршрута');
-      return createFallbackRoute(origin, destination, mode);
+      return {
+        error: 'INVALID_COORDINATES',
+        errorMessage: 'Некорректные координаты для запроса маршрута'
+      };
     }
 
     // Проверяем наличие API ключа
     if (!OPEN_ROUTE_SERVICE_API_KEY) {
       console.error('API: Отсутствует ключ для OpenRouteService API');
-      return createFallbackRoute(origin, destination, mode);
+      return {
+        error: 'API_KEY_MISSING',
+        errorMessage: 'Отсутствует ключ API для маршрутизации'
+      };
     }
 
     // Проверяем совпадение координат начала и конца
@@ -449,7 +455,7 @@ export const fetchRouteDirections = async (
         coordinates: [],
         distance: 0,
         duration: 0,
-        isApproximate: true,
+        isApproximate: false,
         mode
       };
     }
@@ -547,7 +553,11 @@ export const fetchRouteDirections = async (
     // Если после всех попыток нет успешного ответа
     if (!response || !response.ok) {
       console.error(`API: Ошибка запроса маршрута ${mode}: ${lastError}`);
-      return createFallbackRoute(origin, destination, mode);
+      return {
+        error: 'ROUTE_REQUEST_FAILED',
+        errorMessage: `Не удалось получить маршрут: ${lastError}`,
+        mode
+      };
     }
     
     const data = await response.json();
@@ -560,7 +570,11 @@ export const fetchRouteDirections = async (
       // Проверяем наличие геометрии
       if (!route.geometry || !route.geometry.coordinates || !Array.isArray(route.geometry.coordinates) || route.geometry.coordinates.length === 0) {
         console.error('API: Маршрут не содержит координат');
-        return createFallbackRoute(origin, destination, mode);
+        return {
+          error: 'NO_ROUTE_COORDINATES',
+          errorMessage: 'Полученный маршрут не содержит координат',
+          mode
+        };
       }
       
       // Получаем дистанцию маршрута в километрах и время в минутах
@@ -608,90 +622,20 @@ export const fetchRouteDirections = async (
       };
     } else {
       console.error('API: Ответ сервера не содержит нужных данных для маршрута');
-      return createFallbackRoute(origin, destination, mode);
+      return {
+        error: 'INVALID_RESPONSE',
+        errorMessage: 'Ответ сервера не содержит данных маршрута',
+        mode
+      };
     }
-    
   } catch (error) {
-    // Проверяем, была ли отмена запроса
-    if (error.name === 'AbortError') {
-      console.log('API: Запрос маршрута был отменен');
-    } else {
-      console.error(`API: Ошибка запроса маршрута ${mode}:`, error);
-    }
-    
-    // Вместо выбрасывания исключения, возвращаем резервный маршрут
-    return createFallbackRoute(origin, destination, mode);
-  }
-};
-
-// Функция для создания запасного маршрута по прямой
-const createFallbackRoute = (origin, destination, mode) => {
-  console.log('Создаем запасной маршрут по прямой');
-  
-  if (!origin || !destination) {
+    console.error(`API: Ошибка при получении маршрута ${mode}:`, error);
     return {
-      coordinates: [],
-      distance: 0,
-      duration: 0,
-      isApproximate: true,
-      mode,
-      trafficData: []
+      error: 'ROUTE_ERROR',
+      errorMessage: `Ошибка при получении маршрута: ${error.message}`,
+      mode
     };
   }
-  
-  // Создаем прямую линию с несколькими промежуточными точками
-  const numPoints = 5;
-  const coordinates = [];
-  
-  for (let i = 0; i <= numPoints; i++) {
-    const fraction = i / numPoints;
-    coordinates.push({
-      latitude: origin.latitude + fraction * (destination.latitude - origin.latitude),
-      longitude: origin.longitude + fraction * (destination.longitude - origin.longitude)
-    });
-  }
-  
-  // Рассчитываем примерное расстояние по прямой
-  const distance = calculateDistance(
-    origin.latitude, origin.longitude,
-    destination.latitude, destination.longitude
-  );
-  
-  // Примерное время в минутах зависит от типа транспорта
-  const speeds = {
-    'DRIVING': 50, // км/ч
-    'BICYCLING': 15,
-    'WALKING': 5,
-    'TRANSIT': 30
-  };
-  
-  const speed = speeds[mode] || 50;
-  const duration = (distance / speed) * 60; // минуты
-  
-  // Если это маршрут для автомобиля, создаем данные о пробках
-  // Простой вариант - низкая загруженность в начале и конце, выше в середине
-  let trafficData = [];
-  if (mode === 'DRIVING') {
-    trafficData = coordinates.map((_, index) => {
-      // Создаем имитацию пробок - больше всего в середине маршрута
-      const normalizedPosition = index / coordinates.length;
-      const distanceFromCenter = Math.abs(normalizedPosition - 0.5) * 2;  // 0 в центре, 1 на краях
-      const trafficValue = Math.round(8 - 8 * distanceFromCenter);  // От 0 до 8 баллов
-      return trafficValue;
-    });
-  } else {
-    // Для других режимов пробок нет
-    trafficData = coordinates.map(() => 0);
-  }
-  
-  return {
-    coordinates,
-    distance,
-    duration,
-    isApproximate: true,
-    mode,
-    trafficData
-  };
 };
 
 // Экспортируем все API функции

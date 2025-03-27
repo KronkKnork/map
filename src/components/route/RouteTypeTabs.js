@@ -80,24 +80,52 @@ const RouteTypeTabs = ({
   
   // Обработчик смены типа маршрута
   const handleTabChange = (newTabId) => {
+    // Если это тот же тип, что и активный - ничего не делаем
+    if (newTabId === activeTab) return;
+    
     // Если тип заблокирован, показываем сообщение и не меняем
     if (!canChangeTab(newTabId)) {
       ToastAndroid.show('Пожалуйста, подождите немного перед сменой типа маршрута', ToastAndroid.SHORT);
       return;
     }
     
-    // Обновляем время последней смены типа
-    lastTabChangeTime.current = Date.now();
-    
-    // Блокируем смену типа на короткое время
-    setIsTabChangeLocked(true);
-    setTimeout(() => {
+    try {
+      // Обновляем время последней смены типа
+      lastTabChangeTime.current = Date.now();
+      
+      // Блокируем смену типа на короткое время
+      setIsTabChangeLocked(true);
+      
+      // Проверяем, не заблокирован ли API
+      if (window.mapEaseApiBlocked) {
+        ToastAndroid.show('Сервис маршрутов недоступен. Попробуйте позже.', ToastAndroid.SHORT);
+        setTimeout(() => {
+          if (setIsTabChangeLocked) {
+            setIsTabChangeLocked(false);
+          }
+        }, TAB_CHANGE_COOLDOWN);
+        return;
+      }
+      
+      // Вызываем функцию смены типа из пропсов
+      if (onTabChange) {
+        onTabChange(newTabId);
+      }
+      
+      // Снимаем блокировку через указанное время
+      setTimeout(() => {
+        if (setIsTabChangeLocked) {
+          setIsTabChangeLocked(false);
+        }
+      }, TAB_CHANGE_COOLDOWN);
+    } catch (error) {
+      console.error('Ошибка при смене типа маршрута:', error);
+      
+      // Восстанавливаем состояние при ошибке
       setIsTabChangeLocked(false);
-    }, TAB_CHANGE_COOLDOWN);
-    
-    // Вызываем функцию смены типа из пропсов
-    if (onTabChange) {
-      onTabChange(newTabId);
+      
+      // Показываем сообщение об ошибке
+      ToastAndroid.show('Произошла ошибка при смене типа маршрута', ToastAndroid.SHORT);
     }
   };
 

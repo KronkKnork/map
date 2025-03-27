@@ -448,26 +448,32 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
         if (!mounted.current) return;
         
         // Проверяем наличие ошибки API
-        if (result && result.error === "API_ACCESS_DENIED") {
-          console.log(`Ошибка API при запросе маршрута типа ${type}`);
-          window.mapEaseApiBlocked = true;
+        if (result && result.error) {
+          console.log(`Ошибка API при запросе маршрута типа ${type}: ${result.errorMessage || result.error}`);
+          
+          // Если это ошибка доступа к API, блокируем запросы
+          if (result.error === "API_KEY_MISSING" || result.error === "API_ACCESS_DENIED") {
+            window.mapEaseApiBlocked = true;
+            
+            // Показываем сообщение только если еще не показывали
+            if (!apiErrorAlertShownRef.current) {
+              apiErrorAlertShownRef.current = true;
+              Alert.alert(
+                "API маршрутов недоступен",
+                "Сервис построения маршрутов в данный момент недоступен. Пожалуйста, попробуйте позже.",
+                [{ 
+                  text: "OK", 
+                  onPress: () => apiErrorAlertShownRef.current = false 
+                }]
+              );
+            }
+          } else {
+            // Для других типов ошибок просто логируем и продолжаем
+            console.log(`Не удалось получить маршрут типа ${type}: ${result.errorMessage}`);
+          }
           
           // Сбрасываем индикатор загрузки
           setRoutesLoading(prev => ({ ...prev, [type]: false }));
-          
-          // Показываем сообщение только если еще не показывали
-          if (!apiErrorAlertShownRef.current) {
-            apiErrorAlertShownRef.current = true;
-            Alert.alert(
-              "API маршрутов недоступен",
-              "Сервис построения маршрутов в данный момент недоступен. Пожалуйста, попробуйте позже.",
-              [{ 
-                text: "OK", 
-                onPress: () => apiErrorAlertShownRef.current = false 
-              }]
-            );
-          }
-          
           return;
         }
         
@@ -541,6 +547,7 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
       
       // Проверяем наличие данных маршрута для этого типа
       const routeExists = allRoutes[mode] && 
+                         !allRoutes[mode].error && 
                          allRoutes[mode].coordinates && 
                          Array.isArray(allRoutes[mode].coordinates) && 
                          allRoutes[mode].coordinates.length > 0;
@@ -582,6 +589,16 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
           console.error(`Ошибка при обновлении деталей маршрута типа ${mode}:`, routeDetailsError);
           // Продолжаем выполнение и запрашиваем маршрут заново
         }
+      } else if (allRoutes[mode] && allRoutes[mode].error) {
+        // Если для этого типа уже есть ошибка, показываем ее
+        console.log(`Невозможно показать маршрут типа ${mode}: ${allRoutes[mode].errorMessage || allRoutes[mode].error}`);
+        
+        // Сбрасываем индикатор загрузки
+        setRoutesLoading(prev => ({ ...prev, [mode]: false }));
+        
+        // Запрашиваем маршрут заново
+        requestRouteForType(mode);
+        return;
       }
       
       // Устанавливаем флаг загрузки для этого типа
