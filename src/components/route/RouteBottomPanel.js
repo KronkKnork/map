@@ -10,7 +10,7 @@ import {
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../../theme';
 import RouteTypeTabs from './RouteTypeTabs';
-import { ArrowRight, ArrowLeft, Swap } from '../../assets/icons/index';
+import { ArrowRight, ArrowLeft, Swap, Options, CloseNav } from '../../assets/icons/index';
 
 /**
  * Компонент плашки навигации, который отображается снизу при построении маршрута
@@ -219,7 +219,7 @@ const RouteBottomPanel = ({
             style={styles.optionsButton}
             onPress={handleOptionsPress}
           >
-            <Ionicons name="options-outline" size={24} color={theme.colors.textSecondary} />
+            <Options width={24} height={24} color="#5C5EF9" />
           </TouchableOpacity>
           
           {/* Кнопка запуска навигации */}
@@ -235,7 +235,7 @@ const RouteBottomPanel = ({
             style={styles.cancelButton}
             onPress={onCancel}
           >
-            <Ionicons name="close" size={24} color={theme.colors.textSecondary} />
+            <CloseNav width={24} height={24} color="#5C5EF9" />
           </TouchableOpacity>
         </View>
       </View>
