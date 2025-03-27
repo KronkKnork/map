@@ -321,7 +321,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 10,
     right: 10,
-    zIndex: 5,
+    zIndex: 1,
   },
   layersButton: {
     marginBottom: 10,

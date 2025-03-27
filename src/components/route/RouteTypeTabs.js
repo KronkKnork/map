@@ -1,15 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import React from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  ScrollView,
+  ActivityIndicator 
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
 
 /**
- * Компонент для отображения горизонтальных вкладок выбора типа маршрута с информацией о времени
- * @param {string} activeTab - ID активной вкладки (car, walk, bicycle, public_transport, subway)
- * @param {function} onTabChange - Функция обратного вызова при смене вкладки
- * @param {object} routesInfo - Объект с информацией о маршрутах для каждого типа транспорта
- * @param {object} loadingState - Объект с информацией о загрузке маршрутов
- * @param {boolean} showLoadingStates - Показывать ли индикаторы загрузки
+ * Компонент с вкладками для выбора типа маршрута
+ * 
+ * @param {String} activeTab - Активная вкладка
+ * @param {Function} onTabChange - Функция для смены вкладки
+ * @param {Object} routesInfo - Информация о маршрутах по типам
+ * @param {Object} loadingState - Состояние загрузки маршрутов по типам
+ * @param {Boolean} showLoadingStates - Показывать ли состояние загрузки
  */
 const RouteTypeTabs = ({ 
   activeTab = 'car',
@@ -18,18 +26,16 @@ const RouteTypeTabs = ({
   loadingState = {},
   showLoadingStates = true
 }) => {
-  const [buttonsDisabled, setButtonsDisabled] = useState(false);
-  
   // Форматирование времени маршрута
   const formatDuration = (minutes) => {
-    if (minutes === undefined || minutes === null) return "—";
+    if (minutes === undefined || minutes === null) return null;
     
     if (minutes < 1) {
-      return "<1";
+      return "<1м";
     }
     
     if (minutes < 60) {
-      return `${Math.round(minutes)}`;
+      return `${Math.round(minutes)}м`;
     }
     
     const hours = Math.floor(minutes / 60);
@@ -39,197 +45,143 @@ const RouteTypeTabs = ({
       return `${hours}ч`;
     }
     
-    return `${hours}ч${mins}`;
+    return `${hours}ч ${mins}м`;
   };
 
   // Получение времени для типа маршрута
-  const getDurationForTab = (tabId) => {
-    const routeInfo = routesInfo[tabId];
-    if (!routeInfo) return null;
-    
-    return routeInfo.duration;
+  const getRouteDuration = (routeType) => {
+    const routeInfo = routesInfo[routeType];
+    return routeInfo ? routeInfo.duration : null;
   };
 
-  // Проверка, загружается ли маршрут
-  const isLoading = (tabId) => {
-    return loadingState[tabId] === true;
+  // Проверка загрузки для типа маршрута
+  const isRouteLoading = (routeType) => {
+    return loadingState[routeType] === true;
   };
 
-  // Все доступные вкладки
+  // Типы маршрутов
   const tabs = [
-    { 
-      id: 'car', 
-      title: 'Маршрут для авто', 
+    {
+      id: 'car',
+      title: 'Маршрут на автомобиле', 
       icon: 'car',
       shortTitle: 'Авто',
     },
-    { 
-      id: 'walk', 
-      title: 'Маршрут для пеших прогулок', 
+    {
+      id: 'walk',
+      title: 'Пешеходный маршрут', 
       icon: 'walk',
       shortTitle: 'Пешком',
     },
     {
       id: 'bicycle',
-      title: 'Маршрут для велосипедов',
+      title: 'Велосипедный маршрут', 
       icon: 'bicycle',
       shortTitle: 'Вело',
     },
-    { 
-      id: 'public_transport', 
+    {
+      id: 'public_transport',
       title: 'Маршрут для наземного транспорта', 
       icon: 'bus',
       shortTitle: 'Транспорт',
-    },
-    { 
-      id: 'subway', 
-      title: 'Маршрут метро', 
-      icon: 'subway', 
-      shortTitle: 'Метро',
-      disabled: true // Временно отключена
+      disabled: true
     }
   ];
 
-  // Обработчик клика по вкладке
-  const handleTabPress = (type) => {
-    // Не делаем ничего, если нажат текущий тип или кнопки заблокированы
-    if (type === activeTab || buttonsDisabled) return;
-    
-    // Вызываем обработчик смены типа маршрута
-    onTabChange(type);
-    
-    // Блокируем кнопки на 1000 мс (1 секунду) для предотвращения быстрых повторных нажатий
-    setButtonsDisabled(true);
-    setTimeout(() => {
-      setButtonsDisabled(false);
-    }, 1000);
-  };
-
   return (
-    <ScrollView 
-      horizontal 
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.container}
-    >
-      {tabs.map((tab) => {
-        // Получаем длительность маршрута
-        const duration = getDurationForTab(tab.id);
-        // Проверяем состояние загрузки
-        const loading = isLoading(tab.id);
-        // Проверяем активность таба
-        const isActive = activeTab === tab.id;
-        // Проверяем доступность таба
-        const isDisabled = tab.disabled === true;
-        
-        return (
-          <TouchableOpacity
-            key={tab.id}
-            style={[
-              styles.tab,
-              isActive && styles.activeTab,
-              isDisabled && styles.disabledTab,
-              buttonsDisabled && styles.disabledTab
-            ]}
-            onPress={() => !isDisabled && handleTabPress(tab.id)}
-            disabled={buttonsDisabled || loading}
-            activeOpacity={0.7}
-          >
-            <Ionicons 
-              name={`${tab.icon}${isActive ? '' : '-outline'}`}
-              size={20} 
-              color={isActive ? 'white' : theme.colors.textSecondary} 
-            />
-            
-            <View style={styles.tabTextContainer}>
-              <Text 
-                style={[
-                  styles.tabText, 
-                  isActive && styles.activeTabText,
-                  isDisabled && styles.disabledTabText
-                ]}
-                numberOfLines={1}
-              >
-                {tab.shortTitle}
-              </Text>
+    <View style={styles.container}>
+      <View style={styles.tabsContainer}>
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.id;
+          const duration = getRouteDuration(tab.id);
+          const loading = isRouteLoading(tab.id);
+          const formattedDuration = formatDuration(duration);
+          
+          return (
+            <TouchableOpacity
+              key={tab.id}
+              style={[styles.tab, isActive && styles.activeTab]}
+              onPress={() => onTabChange && onTabChange(tab.id)}
+              disabled={tab.disabled}
+              activeOpacity={0.7}
+            >
+              <View style={styles.tabContent}>
+                <Ionicons 
+                  name={tab.icon}
+                  size={20} 
+                  color={isActive ? 'white' : '#FFFFFF99'} 
+                />
+                
+              </View>
+              
+              {duration !== null && (
+                <Text style={[styles.durationText, isActive && styles.activeDurationText]}>
+                  {formattedDuration}
+                </Text>
+              )}
               
               {showLoadingStates && loading && (
                 <ActivityIndicator 
                   size="small" 
-                  color={isActive ? 'white' : theme.colors.primary} 
+                  color={isActive ? 'white' : '#FFFFFF99'} 
                   style={styles.loader}
                 />
               )}
-              {duration !== null && (
-                <Text 
-                  style={[
-                    styles.durationText, 
-                    isActive && styles.activeDurationText,
-                    isDisabled && styles.disabledTabText
-                  ]}
-                >
-                  {formatDuration(duration)}
-                </Text>
-              )}
-            </View>
-          </TouchableOpacity>
-        );
-      })}
-    </ScrollView>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    backgroundColor: theme.colors.primary,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
+    paddingBottom: 20,
+    display: 'flex',
+  },
+  tabsContainer: {
     flexDirection: 'row',
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-    backgroundColor: '#f8f8f8',
-    borderRadius: 12,
-    marginBottom: 16,
+    paddingHorizontal: 8,
+    paddingTop: 4,
   },
   tab: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    justifyContent: 'center',
+    paddingVertical: 8,
     borderRadius: 8,
-    marginHorizontal: 2,
+    marginHorizontal: 4,
   },
   activeTab: {
-    backgroundColor: theme.colors.primary,
   },
-  disabledTab: {
-    opacity: 0.5,
-  },
-  tabTextContainer: {
-    flexDirection: 'column',
-    marginLeft: 6,
+  tabContent: {
+    flexDirection: 'row',
     alignItems: 'center',
-  },
-  tabText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: theme.colors.textPrimary,
+    justifyContent: 'center',
   },
   activeTabText: {
-    color: 'white',
-  },
-  disabledTabText: {
-    color: theme.colors.textSecondary,
+    fontWeight: '600',
   },
   durationText: {
-    fontSize: 10,
-    color: theme.colors.primary,
-    fontWeight: 'bold',
-    marginTop: 2,
+    color: '#FFFFFF99',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 6,
+    marginTop: 4,
   },
   activeDurationText: {
-    color: 'white',
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
   loader: {
-    marginTop: 2,
-    height: 10,
+    marginLeft: 6,
   }
 });
 
-export default RouteTypeTabs; 
+export default RouteTypeTabs;

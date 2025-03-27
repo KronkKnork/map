@@ -10,6 +10,7 @@ import {
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../../theme';
 import RouteTypeTabs from './RouteTypeTabs';
+import { ArrowRight, ArrowLeft, Swap } from '../../assets/icons/index';
 
 /**
  * Компонент плашки навигации, который отображается снизу при построении маршрута
@@ -166,69 +167,77 @@ const RouteBottomPanel = ({
   
   return (
     <View style={styles.container}>
-      {/* Вкладки с типами транспорта */}
-      <RouteTypeTabs 
-        activeTab={activeRouteType} 
-        onTabChange={handleRouteTypeChange}
-        routesInfo={tabRoutesInfo}
-        loadingState={tabsLoadingState}
-      />
-      
-      {/* Блок адресов маршрута */}
-      <View style={styles.addressesContainer}>
-        <View style={styles.addressesContent}>
-          {/* Адрес начальной точки */}
-          <View style={styles.addressRow}>
-            <View style={styles.addressDot}>
-              <Ionicons name="radio-button-on" size={18} color="#4CAF50" />
-            </View>
-            <Text style={styles.addressText} numberOfLines={1}>
-              {originName}
-            </Text>
-          </View>
-          
-          {/* Разделитель */}
-          <View style={styles.addressesDivider} />
-          
-          {/* Адрес конечной точки */}
-          <View style={styles.addressRow}>
-            <View style={styles.addressDot}>
-              <Ionicons name="location" size={18} color="#F44336" />
-            </View>
-            <Text style={styles.addressText} numberOfLines={1}>
-              {destinationName}
-            </Text>
-          </View>
-        </View>
-        
-        {/* Кнопка смены направления */}
-        <TouchableOpacity 
-          style={styles.swapButton} 
-          onPress={handleSwapDirection}
-        >
-          <MaterialIcons name="swap-vert" size={24} color={theme.colors.primary} />
-        </TouchableOpacity>
+      {/* Верхняя мини-плашка с типами транспорта */}
+      <View style={styles.routeTypeTabsContainer}>
+        <RouteTypeTabs 
+          activeTab={activeRouteType} 
+          onTabChange={handleRouteTypeChange}
+          routesInfo={tabRoutesInfo}
+          loadingState={tabsLoadingState}
+        />
       </View>
       
-      {/* Блок с кнопками */}
-      <View style={styles.buttonsContainer}>
-        {/* Кнопка опций */}
-        <TouchableOpacity style={styles.iconButton} onPress={handleOptionsPress}>
-          <MaterialIcons name="tune" size={24} color={theme.colors.textSecondary} />
-        </TouchableOpacity>
+      {/* Основная плашка с информацией о маршруте */}
+      <View style={styles.mainPanel}>
+        {/* Блок адресов маршрута */}
+        <View style={styles.addressesContainer}>
+          <View style={styles.addressesContent}>
+            {/* Адрес начальной точки */}
+            <View style={styles.addressRow}>
+              <View style={styles.addressDot}>
+                <ArrowRight width={24} height={24} color="#5C5EF9" />
+              </View>
+              <Text style={[styles.addressText, originName === "Моё местоположение" && styles.myLocationText]} numberOfLines={1}>
+                {originName}
+              </Text>
+            </View>
+            <View style={styles.addressesDivider} />
+            {/* Адрес конечной точки */}
+            <View style={styles.addressRow}>
+              <View style={styles.addressDot}>
+                <ArrowLeft width={24} height={24} color="#5C5EF9" />
+              </View>
+              <Text style={[styles.addressText, destinationName === "Моё местоположение" && styles.myLocationText]} numberOfLines={1}>
+                {destinationName}
+              </Text>
+            </View>
+          </View>
+          
+          {/* Кнопки */}
+          <TouchableOpacity 
+            style={styles.swapButton}
+            onPress={handleSwapDirection}
+          >
+            <Swap width={24} height={24} color="#5C5EF9" />
+          </TouchableOpacity>
+        </View>
         
-        {/* Основная кнопка маршрута */}
-        <TouchableOpacity 
-          style={styles.startButton}
-          onPress={onStartNavigation}
-        >
-          <Text style={styles.startButtonText}>Начать маршрут</Text>
-        </TouchableOpacity>
-        
-        {/* Кнопка закрытия */}
-        <TouchableOpacity style={styles.iconButton} onPress={onCancel}>
-          <MaterialIcons name="close" size={24} color={theme.colors.textSecondary} />
-        </TouchableOpacity>
+        {/* Блок с кнопками действий */}
+        <View style={styles.actionsContainer}>
+          {/* Кнопка опций */}
+          <TouchableOpacity 
+            style={styles.optionsButton}
+            onPress={handleOptionsPress}
+          >
+            <Ionicons name="options-outline" size={24} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+          
+          {/* Кнопка запуска навигации */}
+          <TouchableOpacity 
+            style={styles.startButton}
+            onPress={onStartNavigation}
+          >
+            <Text style={styles.startButtonText}>Начать маршрут</Text>
+          </TouchableOpacity>
+
+          {/* Кнопка отмены маршрута */}
+          <TouchableOpacity 
+            style={styles.cancelButton}
+            onPress={onCancel}
+          >
+            <Ionicons name="close" size={24} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -240,26 +249,32 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    zIndex: 2,
+  },
+  routeTypeTabsContainer: {
+    marginBottom: -16,
+    backgroundColor: 'transparent',
+  },
+  mainPanel: {
     backgroundColor: 'white',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
-    elevation: 5,
-    zIndex: 10,
+    elevation: 4,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
-  // Стили для блока адресов
   addressesContainer: {
     flexDirection: 'row',
-    marginVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#F5F5F5',
-    padding: 8,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 16,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    backgroundColor: 'white',
   },
   addressesContent: {
     flex: 1,
@@ -268,57 +283,64 @@ const styles = StyleSheet.create({
   addressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
+    padding: 10,
   },
   addressDot: {
-    marginRight: 8,
     width: 24,
     alignItems: 'center',
+    marginRight: 16,
   },
   addressText: {
     flex: 1,
-    fontSize: 14,
-    color: theme.colors.textPrimary,
+    fontSize: 16,
+    color: theme.colors.text,
+  },
+  myLocationText: {
+    color: '#33333338',
+  },
+  swapButton: {
+    width: 30,
+    height: 30,
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
   },
   addressesDivider: {
     height: 1,
-    backgroundColor: '#E0E0E0',
-    marginLeft: 32,
-    marginVertical: 2,
+    backgroundColor: '#33333338',
   },
-  swapButton: {
-    alignSelf: 'center',
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: 18,
-    backgroundColor: '#EEEEEE',
-  },
-  // Стили для блока кнопок
-  buttonsContainer: {
+  actionsContainer: {
     flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingTop: 8,
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
   },
-  iconButton: {
-    width: 44,
-    height: 44,
+  optionsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F5F5F5',
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 22,
+    marginRight: 8,
+  },
+  cancelButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F5F5F5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
   },
   startButton: {
     flex: 1,
+    height: 48,
     backgroundColor: theme.colors.primary,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
+    borderRadius: 24,
     justifyContent: 'center',
-    marginHorizontal: 12,
+    alignItems: 'center',
   },
   startButtonText: {
     color: 'white',
@@ -327,4 +349,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default RouteBottomPanel; 
+export default RouteBottomPanel;
