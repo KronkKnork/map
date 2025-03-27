@@ -208,7 +208,7 @@ const RouteDirections = ({
       case 'BICYCLING':
         return 4;
       case 'TRANSIT':
-        return 6; // Толще для транспорта
+        return 5; // Толще для транспорта
       case 'DRIVING':
       default:
         return 5;
@@ -219,9 +219,9 @@ const RouteDirections = ({
   const getRouteLinePattern = useCallback(() => {
     switch (mode) {
       case 'WALKING':
-        return [5, 5]; // Пунктирная линия для пешеходного маршрута
+        return null; // [5, 5] Пунктирная линия для пешеходного маршрута
       case 'BICYCLING':
-        return [10, 3]; // Штрих-пунктирная линия
+        return null; // Штрих-пунктирная линия
       case 'TRANSIT':
         return null; // Сплошная для транспорта
       case 'DRIVING':
@@ -230,24 +230,89 @@ const RouteDirections = ({
     }
   }, [mode]);
   
+  // Получаем цвет маршрута в зависимости от типа
+  const getRouteColor = useCallback(() => {
+    if (strokeColor) return strokeColor;
+    
+    switch (mode) {
+      case 'WALKING':
+      case 'BICYCLING':
+        return theme.colors.routeWalk || theme.colors.primary; // Синий для пешеходных и велосипедных маршрутов
+      case 'TRANSIT':
+        return theme.colors.routeTransit || '#673ab7'; // Фиолетовый для общественного транспорта
+      case 'DRIVING':
+      default:
+        return theme.colors.primary; // Основной цвет для авто
+    }
+  }, [mode, strokeColor]);
+  
+  // Определяем, нужна ли обводка для маршрута
+  const getRouteStrokeStyle = useCallback(() => {
+    // Для всех типов маршрутов добавляем белую обводку
+    return {
+      strokeColor: getRouteColor(),
+      strokeWidth: getRouteWidth(),
+      lineDashPattern: getRouteLinePattern(),
+      zIndex: 1,
+      lineJoin: 'round',
+      lineCap: 'round',
+    };
+  }, [getRouteColor, getRouteWidth, getRouteLinePattern]);
+  
   // Разделяем маршрут на сегменты с разными цветами для пробок
   const renderTrafficSegments = useCallback(() => {
-    if (mode !== 'DRIVING' || !trafficData || trafficData.length === 0 || !coordinates || coordinates.length < 2) {
-      // Если это не автомобильный маршрут или нет данных о пробках, рисуем обычную линию
+    if (!coordinates || coordinates.length < 2) {
+      return null;
+    }
+    
+    // Если это не автомобильный маршрут или нет данных о пробках, рисуем обычную линию
+    if (mode !== 'DRIVING' || !trafficData || trafficData.length === 0) {
+      const routeStyle = getRouteStrokeStyle();
+      
+      // Для всех типов маршрутов добавляем белую обводку
       return (
-        <Polyline
-          coordinates={coordinates}
-          strokeColor={strokeColor || theme.colors.primary}
-          strokeWidth={getRouteWidth()}
-          lineDashPattern={getRouteLinePattern()}
-          zIndex={1}
-        />
+        <>
+          {/* Белая обводка под маршрутом */}
+          <Polyline
+            coordinates={coordinates}
+            strokeColor="white"
+            strokeWidth={routeStyle.strokeWidth + 3}
+            lineDashPattern={routeStyle.lineDashPattern}
+            zIndex={routeStyle.zIndex - 1}
+            lineJoin={routeStyle.lineJoin}
+            lineCap={routeStyle.lineCap}
+          />
+          {/* Основной маршрут */}
+          <Polyline
+            coordinates={coordinates}
+            strokeColor={routeStyle.strokeColor}
+            strokeWidth={routeStyle.strokeWidth}
+            lineDashPattern={routeStyle.lineDashPattern}
+            zIndex={routeStyle.zIndex}
+            lineJoin={routeStyle.lineJoin}
+            lineCap={routeStyle.lineCap}
+          />
+        </>
       );
     }
     
-    // Создаем сегменты маршрута с разными цветами
+    // Создаем сегменты маршрута с разными цветами для пробок
     const segments = [];
     
+    // Сначала рисуем белую обводку для всего маршрута
+    segments.push(
+      <Polyline
+        key="route-outline"
+        coordinates={coordinates}
+        strokeColor="white"
+        strokeWidth={getRouteWidth() + 3}
+        zIndex={0}
+        lineJoin="round"
+        lineCap="round"
+      />
+    );
+    
+    // Затем рисуем сегменты с цветами пробок
     for (let i = 0; i < coordinates.length - 1; i++) {
       const segmentCoords = [coordinates[i], coordinates[i+1]];
       const trafficValue = trafficData[i] || 0;
@@ -261,12 +326,14 @@ const RouteDirections = ({
           strokeWidth={getRouteWidth()}
           lineDashPattern={getRouteLinePattern()}
           zIndex={1}
+          lineJoin="round"
+          lineCap="round"
         />
       );
     }
     
     return segments;
-  }, [coordinates, trafficData, mode, strokeColor, getRouteWidth, getRouteLinePattern, getTrafficColor]);
+  }, [coordinates, trafficData, mode, getRouteWidth, getRouteLinePattern, getTrafficColor, getRouteStrokeStyle]);
   
   // Функция для проверки валидности координат
   const areValidCoordinates = (coords) => {
@@ -690,18 +757,7 @@ const RouteDirections = ({
         {/* Рендерим маршрут в зависимости от наличия данных о пробках */}
         {mode === 'DRIVING' && trafficData.length > 0 ? 
           renderTrafficSegments() : 
-          coordinates.length > 0 && (
-            <Polyline
-              coordinates={coordinates}
-              strokeColor={currentColor}
-              strokeWidth={currentWidth}
-              lineDashPattern={linePattern}
-              geodesic
-              zIndex={1}
-              lineCap="round"
-              lineJoin="round"
-            />
-          )
+          coordinates.length > 0 && renderTrafficSegments()
         }
         
         {/* Аннотация с временем маршрута */}

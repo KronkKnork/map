@@ -1,7 +1,8 @@
 import React, { useEffect } from 'react';
 import { Marker } from 'react-native-maps';
 import { View, StyleSheet } from 'react-native';
-import { LocationMarker } from '../../assets/icons';
+// Исправляем путь импорта с учетом регистра
+import { LocationMarker } from '../../assets/icons/index';
 
 /**
  * Компонент маркера выбранного места с улучшенной логикой отображения
@@ -26,9 +27,10 @@ const SelectedPlaceMarker = ({ location, placeInfo, isRouting = false }) => {
     !isNaN(location.latitude) && 
     !isNaN(location.longitude);
 
-  // Не отображаем маркер, если координаты невалидны или активен режим маршрута
-  if (!isValidLocation || isRouting) {
-    console.log('SelectedPlaceMarker: Пропуск рендера - невалидные координаты или режим маршрута');
+  // Не отображаем маркер только если координаты невалидны
+  // Убираем проверку на isRouting, чтобы маркер отображался всегда при валидных координатах
+  if (!isValidLocation) {
+    console.log('SelectedPlaceMarker: Пропуск рендера - невалидные координаты');
     return null;
   }
 
@@ -37,8 +39,8 @@ const SelectedPlaceMarker = ({ location, placeInfo, isRouting = false }) => {
   return (
     <Marker
       coordinate={location}
-      // title={placeInfo?.name || "Выбранное место"}
-      // description={placeInfo?.address}
+      title={placeInfo?.name || "Выбранное место"}
+      description={placeInfo?.address}
       tracksViewChanges={false}
       anchor={{ x: 0.5, y: 1.0 }} // Якорь в нижней точке капли
     >
