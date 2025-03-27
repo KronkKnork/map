@@ -7,6 +7,7 @@ import RouteBottomPanel from '../components/route/RouteBottomPanel';
 import SearchBar from '../components/search/SearchBar';
 import SearchResults from '../components/search/SearchResults';
 import SelectedPlaceMarker from '../components/map/SelectedPlaceMarker';
+import SelectedPlaceInfo from '../components/map/SelectedPlaceInfo';
 import RouteMarkers from '../components/map/RouteMarkers';
 import { theme } from '../theme';
 
@@ -243,37 +244,11 @@ const MapScreen = () => {
 
         {/* Информация о выбранном месте */}
         {selectedLocation && !isRouting && selectedPlaceInfo && (
-          <View style={styles.selectedPlaceContainer}>
-            <View style={styles.selectedPlaceContent}>
-              <Text style={styles.selectedPlaceName}>{selectedPlaceInfo.name || "Выбранное место"}</Text>
-              {selectedPlaceInfo.address && (
-                <Text style={styles.selectedPlaceAddress}>{selectedPlaceInfo.address}</Text>
-              )}
-              {selectedPlaceInfo.distance && (
-                <Text style={styles.selectedPlaceDistance}>
-                  {selectedPlaceInfo.distance < 1 
-                    ? `${Math.round(selectedPlaceInfo.distance * 1000)} м от вас` 
-                    : `${selectedPlaceInfo.distance.toFixed(1)} км от вас`}
-                </Text>
-              )}
-            </View>
-            <View style={styles.selectedPlaceActions}>
-              <TouchableOpacity
-                style={styles.locationAction}
-                onPress={() => handleStartRouting(false)}
-              >
-                <Ionicons name="navigate" size={20} color="white" />
-                <Text style={styles.locationActionText}>Сюда</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.locationAction}
-                onPress={() => handleStartRouting(true)}
-              >
-                <Ionicons name="arrow-up" size={20} color="white" />
-                <Text style={styles.locationActionText}>Отсюда</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          <SelectedPlaceInfo 
+            placeInfo={selectedPlaceInfo}
+            onStartRouting={handleStartRouting}
+            isVisible={!!selectedLocation && !isRouting}
+          />
         )}
 
         {/* Панель маршрута */}
@@ -371,59 +346,6 @@ const styles = StyleSheet.create({
   layerOptionText: {
     color: "#333",
     fontSize: 14,
-  },
-  selectedPlaceContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'white',
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-    flexDirection: 'row',
-  },
-  selectedPlaceContent: {
-    flex: 1,
-    padding: 10,
-  },
-  selectedPlaceName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 4,
-    color: "#333",
-  },
-  selectedPlaceAddress: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 4,
-  },
-  selectedPlaceDistance: {
-    fontSize: 14,
-    color: theme.colors.primary,
-  },
-  selectedPlaceActions: {
-    flexDirection: 'row',
-    padding: 8,
-    alignItems: 'center',
-  },
-  locationAction: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginHorizontal: 4,
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  locationActionText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500',
-    marginLeft: 4,
   },
   routeLoadingContainer: {
     position: 'absolute',
