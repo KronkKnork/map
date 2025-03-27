@@ -9,7 +9,13 @@ export const useLocation = () => {
   // Состояние для текущего местоположения
   const [location, setLocation] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
-  const [region, setRegion] = useState(null);
+  // Устанавливаем начальный регион на Москву, чтобы избежать показа Бразилии
+  const [region, setRegion] = useState({
+    latitude: 55.7558,
+    longitude: 37.6173,
+    latitudeDelta: 0.1,
+    longitudeDelta: 0.1
+  });
   const [locationPermission, setLocationPermission] = useState(false);
   
   // Эффект для получения разрешения на доступ к местоположению
@@ -34,12 +40,25 @@ export const useLocation = () => {
         setLocation(location);
         
         // Устанавливаем начальный регион для карты всегда при получении первого местоположения
-        setRegion({
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02
-        });
+        if (location && location.coords) {
+          const newRegion = {
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude,
+            latitudeDelta: 0.02,
+            longitudeDelta: 0.02
+          };
+          setRegion(newRegion);
+          
+          // Добавляем небольшую задержку для обновления региона
+          // Это помогает решить проблему с начальным отображением
+          setTimeout(() => {
+            setRegion({
+              ...newRegion,
+              latitudeDelta: 0.019, // Немного изменяем значение для гарантированного обновления
+              longitudeDelta: 0.019
+            });
+          }, 500);
+        }
         
         // Подписка на обновления местоположения
         const watchId = Location.watchPositionAsync(

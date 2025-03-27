@@ -87,6 +87,23 @@ const MapScreen = () => {
     handleSelectSearchResult(result, mapRef, isRouting ? handleCancelRouting : null);
   };
 
+  // Эффект для центрирования на местоположении пользователя при первой загрузке
+  useEffect(() => {
+    // Флаг для отслеживания, было ли уже выполнено центрирование
+    let hasInitiallyCentered = false;
+    
+    // Добавляем небольшую задержку, чтобы компоненты успели инициализироваться
+    const timer = setTimeout(() => {
+      if (location && location.coords && mapRef.current && !hasInitiallyCentered) {
+        centerOnUserLocation(mapRef);
+        console.log('Карта центрирована на местоположении пользователя при запуске');
+        hasInitiallyCentered = true;
+      }
+    }, 1000); // Задержка 1 секунда
+    
+    return () => clearTimeout(timer);
+  }, []); // Пустой массив зависимостей, чтобы эффект выполнился только один раз при монтировании
+
   // Рендер компонента
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -142,10 +159,12 @@ const MapScreen = () => {
           isRouteLoading={isCurrentRouteLoading()}
         >
           {/* Маркер выбранного места (не в режиме маршрута) */}
-          <SelectedPlaceMarker 
-            location={selectedLocation} 
-            placeInfo={selectedPlaceInfo} 
-          />
+          {selectedLocation && (
+            <SelectedPlaceMarker 
+              location={selectedLocation} 
+              placeInfo={selectedPlaceInfo} 
+            />
+          )}
           
           {/* Маркеры маршрута (начало и конец) */}
           <RouteMarkers 
