@@ -164,6 +164,7 @@ const MapScreen = () => {
             <SelectedPlaceMarker 
               location={selectedLocation} 
               placeInfo={selectedPlaceInfo} 
+              isRouting={isRouting}
             />
           )}
           

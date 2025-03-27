@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { Marker } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../../theme';
+import { DestinationMarker, OriginMarker } from '../../assets/icons';
 
 /**
  * Компонент для отображения маркеров начальной и конечной точек маршрута
@@ -34,11 +35,7 @@ const RouteMarkers = ({
         title={originInfo?.name || "Начало маршрута"}
         description={originInfo?.address || "Начальная точка маршрута"}
       >
-        <View style={styles.markerContainer}>
-          <View style={styles.startMarker}>
-            <Ionicons name="navigate" size={22} color="white" />
-          </View>
-        </View>
+        <OriginMarker width={30} height={30} color={theme.colors.primary} />
       </Marker>
       
       {/* Маркер конечной точки */}
@@ -47,11 +44,7 @@ const RouteMarkers = ({
         title={destinationInfo?.name || "Конец маршрута"}
         description={destinationInfo?.address || "Конечная точка маршрута"}
       >
-        <View style={styles.markerContainer}>
-          <View style={styles.endMarker}>
-            <Ionicons name="flag" size={18} color="white" />
-          </View>
-        </View>
+        <DestinationMarker color={theme.colors.primary} width={60} height={60} />
       </Marker>
     </>
   );
@@ -96,4 +89,4 @@ const styles = StyleSheet.create({
   }
 });
 
-export default RouteMarkers; 
+export default RouteMarkers;

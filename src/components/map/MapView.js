@@ -132,6 +132,10 @@ const MapViewComponent = forwardRef(({
     }
   }, [region]);
 
+  // Определяем, нужно ли показывать маркер местоположения пользователя
+  // Скрываем его, если активен режим маршрутизации (есть данные маршрута)
+  const showUserLocation = !!userLocation && !routeData;
+
   return (
     <View style={styles.container}>
       {hasValidRegion && (
@@ -152,7 +156,7 @@ const MapViewComponent = forwardRef(({
           onRegionChangeComplete={handleRegionChange}
           onPanDrag={handlePanDrag}
           onMapReady={handleMapReady}
-          showsUserLocation={!!userLocation}
+          showsUserLocation={showUserLocation}
           followsUserLocation={false}
           showsMyLocationButton={false}
           showsCompass={true}
@@ -200,9 +204,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   map: {
-    width: '100%',
-    height: '100%',
-  },
+    ...StyleSheet.absoluteFillObject,
+  }
 });
 
 export default MapViewComponent;
