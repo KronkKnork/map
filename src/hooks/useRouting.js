@@ -30,10 +30,15 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     TRANSIT: false
   });
   
+  // Добавляем отдельный стейт для разворачивания карты
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
+  
   // Ссылки
   const routesRequestedRef = useRef(false);
   const apiErrorAlertShownRef = useRef(false);
   const mounted = useRef(true);
+  const lastRequestTimeRef = useRef(0);
+  const requestTimeoutRef = useRef(null);
   
   // Отслеживаем, был ли отображен маршрут определенного типа
   const routeDisplayedRef = useRef({
@@ -43,20 +48,19 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     TRANSIT: false
   });
   
-  // Отслеживаем монтирование компонента
+  // Следим за изменением isMapExpanded
   useEffect(() => {
-    mounted.current = true;
-    
-    // Инициализация глобальных переменных для кэша маршрутов
-    if (!window.routeRequestsCache) {
-      window.routeRequestsCache = {};
+    if (isMapExpanded && mounted.current) {
+      // Ждем 1 секунду после разворачивания карты
+      const timer = setTimeout(() => {
+        if (mounted.current) {
+          setIsRouting(true);
+        }
+      }, 1000);
+      
+      return () => clearTimeout(timer);
     }
-    
-    return () => {
-      mounted.current = false;
-      window.mapEaseApiBlocked = false;
-    };
-  }, []);
+  }, [isMapExpanded]);
   
   // Типы транспорта
   const transportModes = {
@@ -71,38 +75,46 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     return transportModes[mode] || 'car';
   };
 
+  // Функция для проверки возможности нового запроса
+  const canMakeNewRequest = () => {
+    const now = Date.now();
+    const timeSinceLastRequest = now - lastRequestTimeRef.current;
+    return timeSinceLastRequest > 1000; // Минимальный интервал между запросами - 1 секунда
+  };
+
+  // Функция для безопасного запроса маршрута с задержкой
+  const safeRequestRoute = (callback) => {
+    if (requestTimeoutRef.current) {
+      clearTimeout(requestTimeoutRef.current);
+    }
+
+    requestTimeoutRef.current = setTimeout(() => {
+      if (canMakeNewRequest() && mounted.current) {
+        lastRequestTimeRef.current = Date.now();
+        callback();
+      } else {
+        console.log('RouteDirections: слишком частые запросы, пропускаем');
+      }
+    }, 1000);
+  };
+
   // Начало построения маршрута
   const handleStartRouting = (reverse = false) => {
     if (!selectedLocation || !location) return;
     
-    // Сбрасываем все данные маршрутов
-    setAllRoutes({
-      DRIVING: null,
-      WALKING: null,
-      BICYCLING: null,
-      TRANSIT: null
-    });
-    
-    setRouteDetails(null);
-    routesRequestedRef.current = false;
-    
-    // Сбрасываем флаги отображения маршрутов
-    routeDisplayedRef.current = {
-      DRIVING: false,
-      WALKING: false, 
-      BICYCLING: false,
-      TRANSIT: false
-    };
-    
-    // Сбрасываем флаг запроса всех типов маршрутов
-    window.allRoutesRequested = false;
-    
-    setIsRouting(true);
+    // Устанавливаем направление маршрута
     setIsReverseRoute(reverse);
+    
+    // Сначала только разворачиваем карту
+    setIsMapExpanded(true);
   };
 
   // Отмена построения маршрута
   const handleCancelRouting = () => {
+    // Сначала сворачиваем карту
+    setIsMapExpanded(false);
+    
+    // Сбрасываем все остальные состояния
     setIsRouting(false);
     setRouteDetails(null);
     routesRequestedRef.current = false;
@@ -229,7 +241,7 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
       
       // Запускаем запрос остальных типов маршрутов с небольшой задержкой,
       // чтобы дать завершиться текущим операциям
-      setTimeout(requestAllRouteTypes, 300);
+      setTimeout(requestAllRouteTypes, 500);
     }
   };
 
@@ -350,167 +362,175 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
 
   // Функция для запроса маршрута определенного типа
   const requestRouteForType = (type, origin, destination) => {
-    // Если аргументы не переданы, используем текущее состояние
-    if (!origin || !destination) {
-      origin = isReverseRoute ? selectedLocation : {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      };
-      
-      destination = isReverseRoute ? {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
-      } : selectedLocation;
-    }
-    
-    // Проверяем, что данные для запроса есть
     if (!origin || !destination || !origin.latitude || !destination.latitude) {
       console.log(`Невозможно запросить маршрут типа ${type}: отсутствуют координаты`);
       setRoutesLoading(prev => ({ ...prev, [type]: false }));
       return;
     }
-    
-    // Проверяем, не заблокирован ли API
-    if (window.mapEaseApiBlocked) {
-      console.log(`Запрос маршрута типа ${type} отменен: API заблокирован`);
-      setRoutesLoading(prev => ({ ...prev, [type]: false }));
-      return;
-    }
-    
-    // Проверяем, что начальная и конечная точки не совпадают
-    const isSameLocation = 
-      Math.abs(origin.latitude - destination.latitude) < 0.0000001 && 
-      Math.abs(origin.longitude - destination.longitude) < 0.0000001;
-    
-    if (isSameLocation) {
-      console.log(`Запрос маршрута типа ${type} отменен: начальная и конечная точки совпадают`);
-      setRoutesLoading(prev => ({ ...prev, [type]: false }));
-      return;
-    }
-    
-    console.log(`Запрашиваем маршрут типа ${type}`);
-    
-    // Отмечаем, что маршрут загружается
-    setRoutesLoading(prev => ({ ...prev, [type]: true }));
-    
-    // Формируем ключ запроса для кэширования и проверки на дублирование
-    const requestParams = JSON.stringify({
-      originLat: origin.latitude.toFixed(6),
-      originLng: origin.longitude.toFixed(6),
-      destLat: destination.latitude.toFixed(6),
-      destLng: destination.longitude.toFixed(6),
-      mode: type
-    });
-    
-    // Проверяем кэш маршрутов
-    if (window.routeRequestsCache && window.routeRequestsCache[requestParams]) {
-      const cachedData = window.routeRequestsCache[requestParams];
-      const cachedTimestamp = cachedData.timestamp || 0;
-      const currentTime = Date.now();
+
+    safeRequestRoute(() => {
+      // Если аргументы не переданы, используем текущее состояние
+      if (!origin || !destination) {
+        origin = isReverseRoute ? selectedLocation : {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        };
+        
+        destination = isReverseRoute ? {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        } : selectedLocation;
+      }
       
-      // Используем кэшированные данные, если они не старше 5 минут
-      if (currentTime - cachedTimestamp < 5 * 60 * 1000) {
-        console.log(`Используем кэшированный маршрут для типа ${type}`);
-        
-        // Обновляем состояние маршрута из кэша
-        setAllRoutes(prev => ({ 
-          ...prev, 
-          [type]: {
-            coordinates: cachedData.coordinates || [],
-            distance: cachedData.distance || 0,
-            duration: cachedData.duration || 0,
-            isApproximate: cachedData.isApproximate || false,
-            mode: type,
-            trafficData: cachedData.trafficData || []
-          }
-        }));
-        
-        // Если это текущий выбранный тип, обновляем детали маршрута
-        if (type === routeMode) {
-          setRouteDetails({
-            distance: cachedData.distance || 0,
-            duration: cachedData.duration || 0,
-            isApproximate: cachedData.isApproximate || false
-          });
-        }
-        
-        // Сбрасываем индикатор загрузки
+      // Проверяем, что данные для запроса есть
+      if (!origin || !destination || !origin.latitude || !destination.latitude) {
+        console.log(`Невозможно запросить маршрут типа ${type}: отсутствуют координаты`);
         setRoutesLoading(prev => ({ ...prev, [type]: false }));
-        
         return;
       }
-    }
-    
-    // Выполняем запрос маршрута
-    fetchRouteDirections(origin, destination, [], type)
-      .then(result => {
-        // Проверяем, активен ли еще компонент
-        if (!mounted.current) return;
+      
+      // Проверяем, не заблокирован ли API
+      if (window.mapEaseApiBlocked) {
+        console.log(`Запрос маршрута типа ${type} отменен: API заблокирован`);
+        setRoutesLoading(prev => ({ ...prev, [type]: false }));
+        return;
+      }
+      
+      // Проверяем, что начальная и конечная точки не совпадают
+      const isSameLocation = 
+        Math.abs(origin.latitude - destination.latitude) < 0.0000001 && 
+        Math.abs(origin.longitude - destination.longitude) < 0.0000001;
+      
+      if (isSameLocation) {
+        console.log(`Запрос маршрута типа ${type} отменен: начальная и конечная точки совпадают`);
+        setRoutesLoading(prev => ({ ...prev, [type]: false }));
+        return;
+      }
+      
+      console.log(`Запрашиваем маршрут типа ${type}`);
+      
+      // Отмечаем, что маршрут загружается
+      setRoutesLoading(prev => ({ ...prev, [type]: true }));
+      
+      // Формируем ключ запроса для кэширования и проверки на дублирование
+      const requestParams = JSON.stringify({
+        originLat: origin.latitude.toFixed(6),
+        originLng: origin.longitude.toFixed(6),
+        destLat: destination.latitude.toFixed(6),
+        destLng: destination.longitude.toFixed(6),
+        mode: type
+      });
+      
+      // Проверяем кэш маршрутов
+      if (window.routeRequestsCache && window.routeRequestsCache[requestParams]) {
+        const cachedData = window.routeRequestsCache[requestParams];
+        const cachedTimestamp = cachedData.timestamp || 0;
+        const currentTime = Date.now();
         
-        // Проверяем наличие ошибки API
-        if (result && result.error) {
-          console.log(`Ошибка API при запросе маршрута типа ${type}: ${result.errorMessage || result.error}`);
+        // Используем кэшированные данные, если они не старше 5 минут
+        if (currentTime - cachedTimestamp < 5 * 60 * 1000) {
+          console.log(`Используем кэшированный маршрут для типа ${type}`);
           
-          // Если это ошибка доступа к API, блокируем запросы
-          if (result.error === "API_KEY_MISSING" || result.error === "API_ACCESS_DENIED") {
-            window.mapEaseApiBlocked = true;
-            
-            // Показываем сообщение только если еще не показывали
-            if (!apiErrorAlertShownRef.current) {
-              apiErrorAlertShownRef.current = true;
-              Alert.alert(
-                "API маршрутов недоступен",
-                "Сервис построения маршрутов в данный момент недоступен. Пожалуйста, попробуйте позже.",
-                [{ 
-                  text: "OK", 
-                  onPress: () => apiErrorAlertShownRef.current = false 
-                }]
-              );
+          // Обновляем состояние маршрута из кэша
+          setAllRoutes(prev => ({ 
+            ...prev, 
+            [type]: {
+              coordinates: cachedData.coordinates || [],
+              distance: cachedData.distance || 0,
+              duration: cachedData.duration || 0,
+              isApproximate: cachedData.isApproximate || false,
+              mode: type,
+              trafficData: cachedData.trafficData || []
             }
-          } else {
-            // Для других типов ошибок просто логируем и продолжаем
-            console.log(`Не удалось получить маршрут типа ${type}: ${result.errorMessage}`);
-          }
-          
-          // Сбрасываем индикатор загрузки
-          setRoutesLoading(prev => ({ ...prev, [type]: false }));
-          return;
-        }
-        
-        // Проверяем успешность запроса
-        if (result && result.coordinates && result.coordinates.length > 0) {
-          console.log(`Получен маршрут типа ${type}: ${result.distance.toFixed(1)} км, ${Math.round(result.duration)} мин`);
-          
-          // Сохраняем маршрут
-          setAllRoutes(prev => ({ ...prev, [type]: result }));
+          }));
           
           // Если это текущий выбранный тип, обновляем детали маршрута
           if (type === routeMode) {
             setRouteDetails({
-              distance: result.distance || 0,
-              duration: result.duration || 0,
-              isApproximate: result.isApproximate || false
+              distance: cachedData.distance || 0,
+              duration: cachedData.duration || 0,
+              isApproximate: cachedData.isApproximate || false
             });
-            
-            // Подстраиваем карту под маршрут только для активного типа
-            if (mapRef?.current && result.coordinates.length > 1) {
-              mapRef.current.fitToCoordinates(result.coordinates, {
-                edgePadding: { top: 100, right: 50, bottom: 250, left: 50 },
-                animated: true
-              });
-            }
           }
-        } else {
-          console.log(`Не удалось получить маршрут типа ${type}`);
+          
+          // Сбрасываем индикатор загрузки
+          setRoutesLoading(prev => ({ ...prev, [type]: false }));
+          
+          return;
         }
-        
-        // Сбрасываем индикатор загрузки
-        setRoutesLoading(prev => ({ ...prev, [type]: false }));
-      })
-      .catch(error => {
-        console.error(`Ошибка при запросе маршрута типа ${type}:`, error);
-        setRoutesLoading(prev => ({ ...prev, [type]: false }));
-      });
+      }
+      
+      // Выполняем запрос маршрута
+      fetchRouteDirections(origin, destination, [], type)
+        .then(result => {
+          // Проверяем, активен ли еще компонент
+          if (!mounted.current) return;
+          
+          // Проверяем наличие ошибки API
+          if (result && result.error) {
+            console.log(`Ошибка API при запросе маршрута типа ${type}: ${result.errorMessage || result.error}`);
+            
+            // Если это ошибка доступа к API, блокируем запросы
+            if (result.error === "API_KEY_MISSING" || result.error === "API_ACCESS_DENIED") {
+              window.mapEaseApiBlocked = true;
+              
+              // Показываем сообщение только если еще не показывали
+              if (!apiErrorAlertShownRef.current) {
+                apiErrorAlertShownRef.current = true;
+                Alert.alert(
+                  "API маршрутов недоступен",
+                  "Сервис построения маршрутов в данный момент недоступен. Пожалуйста, попробуйте позже.",
+                  [{ 
+                    text: "OK", 
+                    onPress: () => apiErrorAlertShownRef.current = false 
+                  }]
+                );
+              }
+            } else {
+              // Для других типов ошибок просто логируем и продолжаем
+              console.log(`Не удалось получить маршрут типа ${type}: ${result.errorMessage}`);
+            }
+            
+            // Сбрасываем индикатор загрузки
+            setRoutesLoading(prev => ({ ...prev, [type]: false }));
+            return;
+          }
+          
+          // Проверяем успешность запроса
+          if (result && result.coordinates && result.coordinates.length > 0) {
+            console.log(`Получен маршрут типа ${type}: ${result.distance.toFixed(1)} км, ${Math.round(result.duration)} мин`);
+            
+            // Сохраняем маршрут
+            setAllRoutes(prev => ({ ...prev, [type]: result }));
+            
+            // Если это текущий выбранный тип, обновляем детали маршрута
+            if (type === routeMode) {
+              setRouteDetails({
+                distance: result.distance || 0,
+                duration: result.duration || 0,
+                isApproximate: result.isApproximate || false
+              });
+              
+              // Подстраиваем карту под маршрут только для активного типа
+              if (mapRef?.current && result.coordinates.length > 1) {
+                mapRef.current.fitToCoordinates(result.coordinates, {
+                  edgePadding: { top: 100, right: 50, bottom: 250, left: 50 },
+                  animated: true
+                });
+              }
+            }
+          } else {
+            console.log(`Не удалось получить маршрут типа ${type}`);
+          }
+          
+          // Сбрасываем индикатор загрузки
+          setRoutesLoading(prev => ({ ...prev, [type]: false }));
+        })
+        .catch(error => {
+          console.error(`Ошибка при запросе маршрута типа ${type}:`, error);
+          setRoutesLoading(prev => ({ ...prev, [type]: false }));
+        });
+    });
   };
 
   // Обработчик изменения типа маршрута
@@ -680,6 +700,16 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     };
   };
 
+  // Очистка при размонтировании
+  useEffect(() => {
+    return () => {
+      if (requestTimeoutRef.current) {
+        clearTimeout(requestTimeoutRef.current);
+      }
+      mounted.current = false;
+    };
+  }, []);
+
   return {
     // Состояния
     isRouting,
@@ -688,6 +718,7 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     routeDetails,
     allRoutes,
     routesLoading,
+    isMapExpanded,
     
     // Сеттеры
     setIsReverseRoute,

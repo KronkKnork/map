@@ -51,6 +51,7 @@ const MapScreen = () => {
     routeDetails,
     allRoutes,
     routesLoading,
+    isMapExpanded,
     setIsReverseRoute,
     handleStartRouting,
     handleCancelRouting,
@@ -108,42 +109,46 @@ const MapScreen = () => {
   // Рендер компонента
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.searchContainer}>
-        <SearchBar
-          value={searchText}
-          onChangeText={handleSearchTextChange}
-          onSubmit={() => handleSearch()}
-          onFocus={() => setIsSearchFocused(true)}
-          onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
-          onClear={() => {
-            handleSearchTextChange('');
-            Keyboard.dismiss();
-          }}
-          isLoading={isSearchLoading}
-          onVoiceSearch={handleVoiceSearch}
-        />
-      </View>
+      {!isMapExpanded && (
+        <>
+          <View style={styles.searchContainer}>
+            <SearchBar
+              value={searchText}
+              onChangeText={handleSearchTextChange}
+              onSubmit={() => handleSearch()}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
+              onClear={() => {
+                handleSearchTextChange('');
+                Keyboard.dismiss();
+              }}
+              isLoading={isSearchLoading}
+              onVoiceSearch={handleVoiceSearch}
+            />
+          </View>
+          
+          {/* Результаты поиска */}
+          <SearchResults
+            results={searchResults.map(result => ({
+              ...result,
+              searchText: searchText
+            }))}
+            onSelectPlace={(result) => {
+              handleSelectSearchResultWrapper(result);
+              Keyboard.dismiss();
+            }}
+            loading={isSearchLoading}
+            visible={isSearchFocused && (searchResults.length > 0 || isSearchLoading)}
+            onClose={() => {
+              setIsSearchFocused(false);
+              Keyboard.dismiss();
+            }}
+            searchQuery={searchText}
+          />
+        </>
+      )}
       
-      {/* Результаты поиска */}
-      <SearchResults
-        results={searchResults.map(result => ({
-          ...result,
-          searchText: searchText
-        }))}
-        onSelectPlace={(result) => {
-          handleSelectSearchResultWrapper(result);
-          Keyboard.dismiss();
-        }}
-        loading={isSearchLoading}
-        visible={isSearchFocused && (searchResults.length > 0 || isSearchLoading)}
-        onClose={() => {
-          setIsSearchFocused(false);
-          Keyboard.dismiss();
-        }}
-        searchQuery={searchText}
-      />
-      
-      <View style={styles.mapContainer}>
+      <View style={[styles.mapContainer, isMapExpanded && styles.mapContainerFullscreen]}>
         <MapViewComponent
           ref={mapRef}
           region={region}
@@ -153,7 +158,7 @@ const MapScreen = () => {
             Keyboard.dismiss();
           }}
           mapType={currentMapType}
-          rotateEnabled={!isRouting} // Отключаем вращение при маршруте
+          rotateEnabled={!isRouting}
           userLocation={location}
           routeData={getRouteDataForMap()}
           onRouteReady={handleRouteReady}
@@ -370,6 +375,14 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
     fontSize: 14,
     textAlign: 'center',
+  },
+  mapContainerFullscreen: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflow: 'hidden',
   },
 });
 

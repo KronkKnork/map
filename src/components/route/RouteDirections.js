@@ -23,6 +23,8 @@ const RouteDirections = ({
   const [activeTab, setActiveTab] = useState(transportType);
   const [selectedRoute, setSelectedRoute] = useState(0);
   const [mapRef, setMapRef] = useState(null);
+  const isMountedRef = React.useRef(true);
+  const abortControllerRef = React.useRef(null);
   
   // Конвертирует тип транспорта из UI в формат API
   const getTransportMode = (tabId) => {
@@ -45,53 +47,105 @@ const RouteDirections = ({
       
       const mode = getTransportMode(activeTab);
       
-      // Формируем запрос к API маршрутов
-      const response = await axios.get(
-        `https://maps.googleapis.com/maps/api/directions/json`,
-        {
-          params: {
-            origin: `${origin.latitude},${origin.longitude}`,
-            destination: `${destination.latitude},${destination.longitude}`,
-            mode: mode.toLowerCase(),
-            alternatives: true,
-            key: GOOGLE_MAPS_API_KEY
-          }
-        }
-      );
+      // Создаем новый контроллер для отмены запроса
+      abortControllerRef.current = new AbortController();
       
-      if (response.data.status === 'OK') {
-        const routes = response.data.routes.map(route => {
-          // Декодируем полилинию
-          const points = decodePolyline(route.overview_polyline.points);
-          
-          // Извлекаем информацию о маршруте
-          const distance = route.legs[0].distance.text;
-          const duration = route.legs[0].duration.text;
-          const steps = route.legs[0].steps;
-          
-          return {
-            points,
-            distance,
-            duration,
-            steps
-          };
-        });
-        
-        setRoute(routes);
-        setRouteDetails(response.data.routes);
-        setSelectedRoute(0);
-        
-        // Подгоняем карту под маршрут
-        if (mapRef && routes.length > 0) {
-          const coordinates = routes[0].points;
-          mapRef.fitToCoordinates(coordinates, {
-            edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
-            animated: true
-          });
-        }
-      } else {
-        setError('Не удалось построить маршрут. Пожалуйста, попробуйте еще раз.');
+      // Проверяем наличие координат
+      if (!origin || !destination || !origin.latitude || !destination.latitude) {
+        console.log('RouteDirections: отсутствуют координаты для построения маршрута');
+        return;
       }
+      
+      // Проверяем, совпадают ли координаты
+      const isSameLocation = 
+        Math.abs(origin.latitude - destination.latitude) < 0.0000001 && 
+        Math.abs(origin.longitude - destination.longitude) < 0.0000001;
+      
+      // Добавляем задержку перед запросом маршрута,
+      // чтобы дать время карте перерисоваться
+      const timeoutId = setTimeout(() => {
+        if (!isMountedRef.current) return;
+        
+        if (isSameLocation) {
+          console.log('RouteDirections: начальная и конечная точки маршрута совпадают');
+          safeSetState(setRoute, null);
+          safeSetState(setRouteDetails, null);
+          safeSetState(setSelectedRoute, 0);
+          safeSetState(setCoordinates, []);
+          safeSetState(setRouteInfo, null);
+          safeSetState(setTrafficData, []);
+          
+          if (onRouteReady && typeof onRouteReady === 'function') {
+            try {
+              onRouteReady({
+                coordinates: [],
+                distance: 0,
+                duration: 0,
+                isApproximate: true,
+                mode: mode,
+                error: "SAME_COORDINATES"
+              });
+            } catch (callbackError) {
+              console.error('Ошибка при вызове onRouteReady:', callbackError);
+            }
+          }
+          return;
+        }
+        
+        // Формируем запрос к API маршрутов
+        const response = await axios.get(
+          `https://maps.googleapis.com/maps/api/directions/json`,
+          {
+            params: {
+              origin: `${origin.latitude},${origin.longitude}`,
+              destination: `${destination.latitude},${destination.longitude}`,
+              mode: mode.toLowerCase(),
+              alternatives: true,
+              key: GOOGLE_MAPS_API_KEY
+            }
+          }
+        );
+        
+        if (response.data.status === 'OK') {
+          const routes = response.data.routes.map(route => {
+            // Декодируем полилинию
+            const points = decodePolyline(route.overview_polyline.points);
+            
+            // Извлекаем информацию о маршруте
+            const distance = route.legs[0].distance.text;
+            const duration = route.legs[0].duration.text;
+            const steps = route.legs[0].steps;
+            
+            return {
+              points,
+              distance,
+              duration,
+              steps
+            };
+          });
+          
+          setRoute(routes);
+          setRouteDetails(response.data.routes);
+          setSelectedRoute(0);
+          
+          // Подгоняем карту под маршрут
+          if (mapRef && routes.length > 0) {
+            const coordinates = routes[0].points;
+            mapRef.fitToCoordinates(coordinates, {
+              edgePadding: { top: 50, right: 50, bottom: 50, left: 50 },
+              animated: true
+            });
+          }
+        } else {
+          setError('Не удалось построить маршрут. Пожалуйста, попробуйте еще раз.');
+        }
+      }, 500);
+      
+      // Очищаем таймер при размонтировании компонента
+      return () => {
+        clearTimeout(timeoutId);
+        isMountedRef.current = false;
+      };
     } catch (err) {
       console.error('Ошибка при получении маршрута:', err);
       setError('Ошибка сети. Пожалуйста, проверьте подключение к интернету.');
