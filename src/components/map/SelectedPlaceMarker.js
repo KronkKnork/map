@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react';
 import { Marker } from 'react-native-maps';
-import { View, StyleSheet } from 'react-native';
-// Исправляем путь импорта с учетом регистра
-import { LocationMarker } from '../../assets/icons/index';
+import { View, StyleSheet, Platform } from 'react-native';
+// Импортируем иконки из правильного пути
+import { LocationMarker, DestinationMarker } from '../../assets/icons';
+import { theme } from '../../theme';
 
 /**
  * Компонент маркера выбранного места с улучшенной логикой отображения
@@ -28,7 +29,6 @@ const SelectedPlaceMarker = ({ location, placeInfo, isRouting = false }) => {
     !isNaN(location.longitude);
 
   // Не отображаем маркер только если координаты невалидны
-  // Убираем проверку на isRouting, чтобы маркер отображался всегда при валидных координатах
   if (!isValidLocation) {
     console.log('SelectedPlaceMarker: Пропуск рендера - невалидные координаты');
     return null;
@@ -36,16 +36,29 @@ const SelectedPlaceMarker = ({ location, placeInfo, isRouting = false }) => {
 
   console.log('SelectedPlaceMarker: Рендерим маркер с координатами', location);
   
+  // Настройки маркера для разных платформ
+  const markerProps = {
+    tracksViewChanges: Platform.OS === 'android', // На Android нужно true
+    anchor: { x: 0.5, y: 1.0 },
+    zIndex: 2
+  };
+  
+  // Выбираем цвет маркера в зависимости от режима
+  const markerColor = isRouting ? theme.colors.primary : '#5853FC';
+  
   return (
     <Marker
       coordinate={location}
       title={placeInfo?.name || "Выбранное место"}
       description={placeInfo?.address}
-      tracksViewChanges={false}
-      anchor={{ x: 0.5, y: 1.0 }} // Якорь в нижней точке капли
+      {...markerProps}
     >
       <View style={styles.container}>
-        <LocationMarker width={50} height={50} color="#5853FC" />
+        {isRouting ? (
+          <DestinationMarker width={50} height={50} color={markerColor} />
+        ) : (
+          <LocationMarker width={50} height={50} color={markerColor} />
+        )}
       </View>
     </Marker>
   );

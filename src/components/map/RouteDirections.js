@@ -1,24 +1,40 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, Platform, ToastAndroid } from 'react-native';
+import axios from 'axios';
+import { observer } from 'mobx-react-lite';
+import { useStore } from '../../stores/StoreContext';
 import { Polyline, Marker } from 'react-native-maps';
 import { fetchRouteDirections } from '../../services/api';
 import { theme } from '../../theme';
-import { View, Text, StyleSheet } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
+import AndroidRouteView from './AndroidRouteView';
 
-// Создаем глобальную переменную для отслеживания времени последнего запроса
-// Это поможет предотвратить слишком частые запросы
-if (typeof window.lastRouteRequestTime === 'undefined') {
-  window.lastRouteRequestTime = 0;
-}
-
-// Создаем глобальную переменную для хранения последних запрашиваемых маршрутов
-// и предотвращения одновременных запросов на одни и те же маршруты
-if (typeof window.currentRouteRequests === 'undefined') {
-  window.currentRouteRequests = new Set();
-}
-
-// Устанавливаем минимальный интервал между запросами (1 секунда)
+// Минимальный интервал между запросами (в мс)
 const MIN_REQUEST_INTERVAL = 1000;
+
+// Алиас для useStore для совместимости
+const useStores = useStore;
+
+// Конвертация градусов в радианы
+const deg2rad = (deg) => {
+  return deg * (Math.PI/180);
+};
+
+// Функция для расчета прямого расстояния между двумя точками (формула Haversine)
+const calculateDistance = (pointA, pointB) => {
+  if (!pointA || !pointB) return 0;
+  
+  const R = 6371; // Радиус Земли в километрах
+  const dLat = deg2rad(pointB.latitude - pointA.latitude);
+  const dLon = deg2rad(pointB.longitude - pointA.longitude);
+  const a = 
+    Math.sin(dLat/2) * Math.sin(dLat/2) +
+    Math.cos(deg2rad(pointA.latitude)) * Math.cos(deg2rad(pointB.latitude)) * 
+    Math.sin(dLon/2) * Math.sin(dLon/2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  const distance = R * c; // Расстояние в километрах
+  return distance;
+};
 
 // Компонент для аннотации времени на маршруте (со стрелкой)
 const RouteAnnotation = ({ coordinate, duration, isApproximate, mode }) => {
@@ -144,38 +160,60 @@ const RouteDirections = ({
   const initializedRef = useRef(false);
   const activeRequestRef = useRef(false); // Новая ссылка для отслеживания активного запроса
   
-  // Создаем кэш маршрутов если он не существует
-  if (!window.routeRequestsCache) {
-    window.routeRequestsCache = {};
-  }
-  
-  // Создаем систему отслеживания запросов в процессе
-  if (!window.requestsInProgress) {
-    window.requestsInProgress = {};
-  }
+  // Используем mapStore для работы с кэшем маршрутов и отслеживания запросов
   
   // Максимальный размер кэша
   const MAX_CACHE_SIZE = 40;
   
-  // Создаем или используем глобальный флаг ошибки API
-  if (typeof window.mapEaseApiBlocked === 'undefined') {
-    window.mapEaseApiBlocked = false;
-  }
+  // Используем mapStore для работы с флагом блокировки API и другими данными
+  
+  // Получаем доступ к хранилищу в основной функции компонента
+  // Используем безопасный доступ к хранилищу
+  const rootStore = useStores ? useStores() : null;
+  const mapStore = rootStore ? rootStore.mapStore : null;
   
   // Очистить запрос из списка активных
   const clearRequestFromCurrent = useCallback((requestParams) => {
-    if (window.currentRouteRequests && window.currentRouteRequests.has(requestParams)) {
-      window.currentRouteRequests.delete(requestParams);
-    }
-    
-    // Удаляем отметку из requestsInProgress
-    if (window.requestsInProgress && window.requestsInProgress[requestParams]) {
-      delete window.requestsInProgress[requestParams];
+    // Проверяем, что mapStore существует
+    if (mapStore) {
+      // Удаляем запрос из списка активных
+      mapStore.removeRouteRequest(requestParams);
     }
     
     // Сбрасываем флаг активного запроса
     activeRequestRef.current = false;
-  }, []);
+  }, [mapStore]);
+  
+  // Функция для проверки возможности выполнения нового запроса
+  const canMakeNewRequest = useCallback(() => {
+    // Проверяем, что mapStore существует
+    return mapStore ? mapStore.canMakeRouteRequest() : false;
+  }, [mapStore]);
+  
+  // Функция для кэширования маршрута
+  const cacheRoute = useCallback((requestParams, routeData) => {
+    // Проверяем, что mapStore существует
+    if (!mapStore) return;
+    
+    try {
+      // Сохраняем маршрут в кэше
+      mapStore.cacheRoute(requestParams, routeData);
+    } catch (cacheError) {
+      console.error('Ошибка при кэшировании маршрута:', cacheError);
+    }
+  }, [mapStore]);
+  
+  // Функция для получения маршрута из кэша
+  const getCachedRoute = useCallback((requestParams) => {
+    // Проверяем, что mapStore существует
+    return mapStore ? mapStore.getCachedRoute(requestParams) : null;
+  }, [mapStore]);
+  
+  // Функция для проверки блокировки API
+  const isApiBlocked = useCallback(() => {
+    // Проверяем, что mapStore существует
+    return mapStore ? mapStore.isApiBlocked : false;
+  }, [mapStore]);
   
   // Безопасное обновление состояния только если компонент смонтирован
   const safeSetState = useCallback((setter, value) => {
@@ -357,63 +395,350 @@ const RouteDirections = ({
     );
   }, []);
   
-  // Ключевой эффект для запроса маршрута при изменении входных данных
-  useEffect(() => {
-    // Отмечаем, что компонент смонтирован
-    isMountedRef.current = true;
-    initializedRef.current = true;
+  // Проверяем валидность координат
+  if (!areValidCoordinates(origin) || !areValidCoordinates(destination)) {
+    console.log('RouteDirections: невалидные координаты', { origin, destination });
+    safeSetState(setCoordinates, []);
+    safeSetState(setRouteInfo, null);
+    safeSetState(setTrafficData, []);
+    
+    if (onRouteReady && typeof onRouteReady === 'function') {
+      try {
+        onRouteReady({
+          coordinates: [],
+          distance: 0,
+          duration: 0,
+          isApproximate: true,
+          mode: mode,
+          error: "INVALID_COORDINATES"
+        });
+      } catch (callbackError) {
+        console.error('Ошибка при вызове onRouteReady:', callbackError);
+      }
+    }
+    return;
+  }
+  
+  // Проверяем, что начальная и конечная точки не совпадают
+  const isSameLocation = 
+    Math.abs(origin.latitude - destination.latitude) < 0.0000001 && 
+    Math.abs(origin.longitude - destination.longitude) < 0.0000001;
+  
+  if (isSameLocation) {
+    console.log('RouteDirections: начальная и конечная точки маршрута совпадают');
+    safeSetState(setCoordinates, []);
+    safeSetState(setRouteInfo, null);
+    safeSetState(setTrafficData, []);
+    
+    if (onRouteReady && typeof onRouteReady === 'function') {
+      try {
+        onRouteReady({
+          coordinates: [],
+          distance: 0,
+          duration: 0,
+          isApproximate: true,
+          mode: mode,
+          error: "SAME_COORDINATES"
+        });
+      } catch (callbackError) {
+        console.error('Ошибка при вызове onRouteReady:', callbackError);
+      }
+    }
+    return;
+  }
+  
+  // Добавляем задержку перед запросом маршрута
+  // Это поможет избежать слишком частых запросов и прерываний
+  const requestDelay = 500; // 500 мс задержка
+  
+  // Формируем строку с параметрами запроса для кэширования и проверки
+  let requestParams;
+  try {
+    requestParams = JSON.stringify({
+      originLat: origin.latitude.toFixed(6),
+      originLng: origin.longitude.toFixed(6),
+      destLat: destination.latitude.toFixed(6),
+      destLng: destination.longitude.toFixed(6),
+      mode: mode,
+    });
+  } catch (error) {
+    console.error('Ошибка при формировании параметров запроса:', error);
+    return;
+  }
+  
+  // Используем задержку перед запросом маршрута
+  // Это позволит избежать слишком частых запросов и прерываний
+  if (timerRef.current) {
+    clearTimeout(timerRef.current);
+  }
+  
+  // Проверяем, выполняется ли уже запрос с такими же параметрами
+  if (window.currentRouteRequests && window.currentRouteRequests.has(requestParams)) {
+    console.log(`RouteDirections: запрос с параметрами ${requestParams} уже выполняется`);
+    return;
+  }
+  
+  // Проверяем, есть ли уже активный запрос для этого компонента
+  if (activeRequestRef.current) {
+    console.log('RouteDirections: уже есть активный запрос, отменяем его');
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch (abortError) {
+        console.error('Ошибка при отмене предыдущего запроса:', abortError);
+      }
+    }
+  }
+  
+  // Значительно увеличиваем задержку перед запросом маршрута для избежания частых отмен
+  const delayTime = Platform.OS === 'android' ? 3000 : requestDelay; // Увеличиваем задержку для Android до 3 секунд
+  
+  // Добавляем дополнительную проверку для Android, чтобы избежать слишком частых запросов
+  if (Platform.OS === 'android') {
+    // Проверяем, что координаты не слишком близко друг к другу
+    const distance = calculateDistance(
+      { latitude: origin.latitude, longitude: origin.longitude },
+      { latitude: destination.latitude, longitude: destination.longitude }
+    );
+    
+    // Если расстояние меньше 100 метров, не строим маршрут
+    if (distance < 0.1) { // 0.1 км = 100 метров
+      console.log(`RouteDirections: расстояние слишком маленькое (${distance.toFixed(2)} км), пропускаем запрос`);
+      return;
+    }
+  }
+  
+  // Используем таймер для запроса маршрута
+  timerRef.current = setTimeout(() => {
+    if (!isMountedRef.current) return;
+    
+    // Устанавливаем флаг активного запроса
+    activeRequestRef.current = true;
+    
+    // Проверяем, что mapStore существует
+    if (!mapStore) {
+      console.log('RouteDirections: mapStore не инициализирован');
+      activeRequestRef.current = false;
+      return;
+    }
+    
+    // Проверяем, можно ли выполнить запрос
+    if (!mapStore.canMakeRouteRequest()) {
+      console.log(`RouteDirections: слишком частые запросы, пропускаем`);
+      activeRequestRef.current = false;
+      return;
+    }
+    
+    // Обновляем время последнего запроса
+    mapStore.updateLastRequestTime();
+    lastRequestTimeRef.current = Date.now();
+    
+    // Проверяем кэш маршрутов
+    const cachedData = mapStore.getCachedRoute(requestParams);
+    if (cachedData) {
+      console.log(`RouteDirections: используем кэшированный маршрут для режима ${mode}`);
+      
+      try {
+        safeSetState(setCoordinates, cachedData.coordinates || []);
+        safeSetState(setRouteInfo, {
+          distance: cachedData.distance || 0,
+          duration: cachedData.duration || 0,
+          isApproximate: cachedData.isApproximate || false
+        });
+        
+        if (cachedData.trafficData) {
+          safeSetState(setTrafficData, cachedData.trafficData || []);
+        }
+        
+        if (onRouteReady && typeof onRouteReady === 'function' && isMountedRef.current) {
+          try {
+            onRouteReady({
+              coordinates: cachedData.coordinates || [],
+              distance: cachedData.distance || 0,
+              duration: cachedData.duration || 0,
+              isApproximate: cachedData.isApproximate || false,
+              mode: mode,
+              trafficData: cachedData.trafficData || []
+            });
+          } catch (callbackError) {
+            console.error('Ошибка при вызове onRouteReady с кэшированными данными:', callbackError);
+          }
+        }
+        
+        activeRequestRef.current = false;
+        return;
+      } catch (cacheError) {
+        console.error('Ошибка при использовании кэшированных данных:', cacheError);
+        // Продолжаем выполнение и запрашиваем маршрут заново
+      }
+    }
+  }, delayTime);
+  
+  // Если параметры не изменились с момента последнего запроса, не делаем новый запрос
+  if (requestParams === lastRequestParamsRef.current && routeFetchedRef.current) {
+    console.log('RouteDirections: параметры запроса не изменились, пропускаем повторный запрос');
+    activeRequestRef.current = false;
+    return;
+  }
+  
+  // Проверяем блокировку API
+  if (mapStore.isApiBlocked) {
+    console.log('RouteDirections: API заблокирован из-за предыдущих ошибок');
+    
+    if (onRouteReady && typeof onRouteReady === 'function') {
+      try {
+        onRouteReady({
+          coordinates: [],
+          distance: 0,
+          duration: 0,
+          error: 'Сервис маршрутов временно недоступен'
+        });
+      } catch (callbackError) {
+        console.error('Ошибка при вызове onRouteReady:', callbackError);
+      }
+    }
+    
+    activeRequestRef.current = false;
+    return;
+  }
+  
+  // Обновляем ссылку на параметры последнего запроса
+  lastRequestParamsRef.current = requestParams;
+  
+  // Используем глобальные функции deg2rad и calculateDistance
+  
+  // Функция для построения маршрута на Android
+  const requestAndroidRoute = useCallback((type, originToUse, destinationToUse) => {
+    console.log('RouteDirections: запуск упрощенного механизма для Android, тип: ' + type);
+    
+    // Отменяем все предыдущие запросы
+    if (abortControllerRef.current) {
+      try {
+        abortControllerRef.current.abort();
+      } catch (error) {
+        // Игнорируем ошибки отмены
+      }
+    }
+    
+    // Создаем новый контроллер
+    abortControllerRef.current = new AbortController();
+    
+    try {
+      // Рассчитываем прямое расстояние между точками
+      const distance = calculateDistance(originToUse, destinationToUse);
+      
+      // Разная скорость для разных типов маршрутов
+      let speed = 0.5; // По умолчанию 30 км/ч или 0.5 км/мин
+      
+      if (type === 'WALKING') {
+        speed = 0.12; // Примерно 5 км/ч или 0.08 км/мин
+      } else if (type === 'BICYCLING') {
+        speed = 0.25; // Примерно 15 км/ч или 0.25 км/мин
+      } else if (type === 'TRANSIT') {
+        speed = 0.7; // Примерно 40 км/ч или 0.7 км/мин
+      }
+      
+      const duration = Math.max(1, Math.round(distance / speed));
+      
+      // Создаем прямой маршрут
+      const coordinates = [
+        { latitude: originToUse.latitude, longitude: originToUse.longitude },
+        { latitude: destinationToUse.latitude, longitude: destinationToUse.longitude }
+      ];
+      
+      // Очищаем предыдущие состояния перед установкой новых
+      safeSetState(setCoordinates, []);
+      safeSetState(setRouteInfo, null);
+      safeSetState(setTrafficData, []);
+      
+      // Добавляем небольшую задержку перед обновлением состояния
+      setTimeout(() => {
+        if (!isMountedRef.current) return;
+        
+        // Обновляем состояние
+        safeSetState(setCoordinates, coordinates);
+        safeSetState(setRouteInfo, {
+          distance: distance,
+          duration: duration,
+          isApproximate: true,
+          mode: type
+        });
+        
+        // Кэшируем маршрут
+        try {
+          const requestParams = JSON.stringify({
+            originLat: originToUse.latitude.toFixed(6),
+            originLng: originToUse.longitude.toFixed(6),
+            destLat: destinationToUse.latitude.toFixed(6),
+            destLng: destinationToUse.longitude.toFixed(6),
+            mode: type
+          });
+          
+          const routeData = {
+            coordinates: coordinates,
+            distance: distance,
+            duration: duration,
+            isApproximate: true,
+            mode: type
+          };
+          
+          // Сохраняем в кэше
+          cacheRoute(requestParams, routeData);
+          
+          // Уведомляем о готовности маршрута
+          if (onRouteReady && typeof onRouteReady === 'function' && isMountedRef.current) {
+            onRouteReady({
+              coordinates: coordinates,
+              distance: distance,
+              duration: duration,
+              isApproximate: true,
+              mode: type
+            });
+          }
+          
+          // Отмечаем, что маршрут получен
+          routeFetchedRef.current = true;
+          activeRequestRef.current = false;
+        } catch (cacheError) {
+          console.error('Ошибка при кэшировании Android маршрута:', cacheError);
+        }
+      }, 100);
+    } catch (error) {
+      console.error('Ошибка при построении маршрута на Android:', error);
+      activeRequestRef.current = false;
+    }
+  }, [safeSetState, setCoordinates, setRouteInfo, onRouteReady, cacheRoute]);
+  
+  // Функция для запроса маршрута определенного типа
+  const requestRouteForType = useCallback(async (type, customOrigin = null, customDestination = null) => {
+    // Проверяем, что компонент смонтирован
+    if (!isMountedRef.current || !initializedRef.current) return;
     
     // Проверяем валидность координат
-    if (!areValidCoordinates(origin) || !areValidCoordinates(destination)) {
-      console.log('RouteDirections: невалидные координаты', { origin, destination });
-      safeSetState(setCoordinates, []);
-      safeSetState(setRouteInfo, null);
-      safeSetState(setTrafficData, []);
-      
-      if (onRouteReady && typeof onRouteReady === 'function') {
-        try {
-          onRouteReady({
-            coordinates: [],
-            distance: 0,
-            duration: 0,
-            isApproximate: true,
-            mode: mode,
-            error: "INVALID_COORDINATES"
-          });
-        } catch (callbackError) {
-          console.error('Ошибка при вызове onRouteReady:', callbackError);
-        }
-      }
+    const originToUse = customOrigin || origin;
+    const destinationToUse = customDestination || destination;
+    
+    if (!areValidCoordinates(originToUse) || !areValidCoordinates(destinationToUse)) {
+      console.log('RouteDirections: невалидные координаты для маршрута');
       return;
     }
     
-    // Проверяем, что начальная и конечная точки не совпадают
-    const isSameLocation = 
-      Math.abs(origin.latitude - destination.latitude) < 0.0000001 && 
-      Math.abs(origin.longitude - destination.longitude) < 0.0000001;
-    
-    if (isSameLocation) {
-      console.log('RouteDirections: начальная и конечная точки маршрута совпадают');
-      safeSetState(setCoordinates, []);
-      safeSetState(setRouteInfo, null);
-      safeSetState(setTrafficData, []);
-      
-      if (onRouteReady && typeof onRouteReady === 'function') {
-        try {
-          onRouteReady({
-            coordinates: [],
-            distance: 0,
-            duration: 0,
-            isApproximate: true,
-            mode: mode,
-            error: "SAME_COORDINATES"
-          });
-        } catch (callbackError) {
-          console.error('Ошибка при вызове onRouteReady:', callbackError);
-        }
-      }
+    // Проверяем, что точки не совпадают
+    if (originToUse.latitude === destinationToUse.latitude && 
+        originToUse.longitude === destinationToUse.longitude) {
+      console.log('RouteDirections: начальная и конечная точки совпадают');
       return;
     }
+    
+    // Для Android используем упрощенный механизм построения маршрута
+    if (Platform.OS === 'android') {
+      console.log('RouteDirections: используем упрощенный механизм для Android');
+      return requestAndroidRoute(type, originToUse, destinationToUse);
+    }
+    
+    // Добавляем задержку перед запросом маршрута
+    // Это поможет избежать слишком частых запросов и прерываний
+    const requestDelay = 500; // 500 мс задержка
     
     // Формируем строку с параметрами запроса для кэширования и проверки
     let requestParams;
@@ -428,6 +753,12 @@ const RouteDirections = ({
     } catch (error) {
       console.error('Ошибка при формировании параметров запроса:', error);
       return;
+    }
+    
+    // Используем задержку перед запросом маршрута
+    // Это позволит избежать слишком частых запросов и прерываний
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
     }
     
     // Проверяем, выполняется ли уже запрос с такими же параметрами
@@ -448,28 +779,52 @@ const RouteDirections = ({
       }
     }
     
-    // Устанавливаем флаг активного запроса
-    activeRequestRef.current = true;
+    // Значительно увеличиваем задержку перед запросом маршрута для избежания частых отмен
+    const delayTime = Platform.OS === 'android' ? 3000 : requestDelay; // Увеличиваем задержку для Android до 3 секунд
     
-    // Проверяем, был ли недавно выполнен запрос
-    const currentTime = Date.now();
-    if (currentTime - window.lastRouteRequestTime < MIN_REQUEST_INTERVAL) {
-      console.log(`RouteDirections: слишком частые запросы, пропускаем`);
-      activeRequestRef.current = false;
-      return;
+    // Добавляем дополнительную проверку для Android, чтобы избежать слишком частых запросов
+    if (Platform.OS === 'android') {
+      // Проверяем, что координаты не слишком близко друг к другу
+      const distance = calculateDistance(
+        { latitude: origin.latitude, longitude: origin.longitude },
+        { latitude: destination.latitude, longitude: destination.longitude }
+      );
+      
+      // Если расстояние меньше 100 метров, не строим маршрут
+      if (distance < 0.1) { // 0.1 км = 100 метров
+        console.log(`RouteDirections: расстояние слишком маленькое (${distance.toFixed(2)} км), пропускаем запрос`);
+        return;
+      }
     }
     
-    // Обновляем время последнего запроса
-    window.lastRouteRequestTime = currentTime;
-    lastRequestTimeRef.current = currentTime;
-    
-    // Проверяем кэш маршрутов
-    if (window.routeRequestsCache && window.routeRequestsCache[requestParams]) {
-      const cachedData = window.routeRequestsCache[requestParams];
-      const cachedTimestamp = cachedData.timestamp || 0;
+    // Используем таймер для запроса маршрута
+    timerRef.current = setTimeout(() => {
+      if (!isMountedRef.current) return;
       
-      // Используем кэшированные данные, если они не старше 10 минут
-      if (currentTime - cachedTimestamp < 10 * 60 * 1000) {
+      // Устанавливаем флаг активного запроса
+      activeRequestRef.current = true;
+      
+      // Проверяем, что mapStore существует
+      if (!mapStore) {
+        console.log('RouteDirections: mapStore не инициализирован');
+        activeRequestRef.current = false;
+        return;
+      }
+      
+      // Проверяем, можно ли выполнить запрос
+      if (!mapStore.canMakeRouteRequest()) {
+        console.log(`RouteDirections: слишком частые запросы, пропускаем`);
+        activeRequestRef.current = false;
+        return;
+      }
+      
+      // Обновляем время последнего запроса
+      mapStore.updateLastRequestTime();
+      lastRequestTimeRef.current = Date.now();
+      
+      // Проверяем кэш маршрутов
+      const cachedData = mapStore.getCachedRoute(requestParams);
+      if (cachedData) {
         console.log(`RouteDirections: используем кэшированный маршрут для режима ${mode}`);
         
         try {
@@ -506,7 +861,7 @@ const RouteDirections = ({
           // Продолжаем выполнение и запрашиваем маршрут заново
         }
       }
-    }
+    }, delayTime);
     
     // Если параметры не изменились с момента последнего запроса, не делаем новый запрос
     if (requestParams === lastRequestParamsRef.current && routeFetchedRef.current) {
@@ -516,7 +871,7 @@ const RouteDirections = ({
     }
     
     // Проверяем блокировку API
-    if (window.mapEaseApiBlocked) {
+    if (mapStore.isApiBlocked) {
       console.log('RouteDirections: API заблокирован из-за предыдущих ошибок');
       
       if (onRouteReady && typeof onRouteReady === 'function') {
@@ -525,12 +880,10 @@ const RouteDirections = ({
             coordinates: [],
             distance: 0,
             duration: 0,
-            isApproximate: true,
-            mode: mode,
-            error: "API_ACCESS_DENIED"
+            error: 'Сервис маршрутов временно недоступен'
           });
         } catch (callbackError) {
-          console.error('Ошибка при вызове onRouteReady с ошибкой API:', callbackError);
+          console.error('Ошибка при вызове onRouteReady:', callbackError);
         }
       }
       
@@ -542,17 +895,19 @@ const RouteDirections = ({
     lastRequestParamsRef.current = requestParams;
     
     // Добавляем запрос в список активных
-    if (window.currentRouteRequests) {
-      window.currentRouteRequests.add(requestParams);
-    }
-    
-    if (window.requestsInProgress) {
-      window.requestsInProgress[requestParams] = true;
-    }
+    mapStore.addRouteRequest(requestParams);
     
     console.log(`RouteDirections: запрашиваем маршрут для режима ${mode}`);
     
-    // Отменяем предыдущий запрос если он есть
+    // На Android не используем отмену запросов - мы используем упрощенный механизм в requestAndroidRoute
+    if (Platform.OS === 'android') {
+      console.log('RouteDirections: на Android не используем отмену запросов');
+      // Просто создаем новый контроллер без отмены предыдущего
+      abortControllerRef.current = new AbortController();
+      return;
+    }
+    
+    // На iOS отменяем предыдущий запрос
     if (abortControllerRef.current) {
       try {
         abortControllerRef.current.abort();
@@ -564,6 +919,9 @@ const RouteDirections = ({
     // Создаем новый контроллер отмены
     try {
       abortControllerRef.current = new AbortController();
+      // Добавляем метку времени для отслеживания
+      abortControllerRef.current.timestamp = Date.now();
+      abortControllerRef.current.isOutdated = false;
     } catch (controllerError) {
       console.error('Ошибка при создании AbortController:', controllerError);
       activeRequestRef.current = false;
@@ -609,6 +967,13 @@ const RouteDirections = ({
         // Проверяем монтирование компонента
         if (!isMountedRef.current) {
           console.log('RouteDirections: компонент размонтирован, пропускаем обработку результата');
+          return;
+        }
+        
+        // На Android проверяем, что это не устаревший запрос
+        if (Platform.OS === 'android') {
+          // На Android мы используем упрощенный механизм, поэтому пропускаем все ответы API
+          console.log('RouteDirections: на Android игнорируем ответ API, используем упрощенный механизм');
           return;
         }
         
@@ -831,30 +1196,7 @@ const RouteDirections = ({
     };
   }, []);
   
-  // Расчет прямого расстояния между двумя точками (формула Haversine) - для аннотаций
-  const calculateDirectDistance = (pointA, pointB) => {
-    if (!pointA || !pointB || 
-        !pointA.latitude || !pointA.longitude || 
-        !pointB.latitude || !pointB.longitude) {
-      return 0;
-    }
-    
-    const R = 6371; // Радиус Земли в километрах
-    const dLat = deg2rad(pointB.latitude - pointA.latitude);
-    const dLon = deg2rad(pointB.longitude - pointA.longitude);
-    const a = 
-      Math.sin(dLat/2) * Math.sin(dLat/2) +
-      Math.cos(deg2rad(pointA.latitude)) * Math.cos(deg2rad(pointB.latitude)) * 
-      Math.sin(dLon/2) * Math.sin(dLon/2); 
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-    const distance = R * c; // Расстояние в километрах
-    return distance;
-  };
-  
-  // Конвертация градусов в радианы
-  const deg2rad = (deg) => {
-    return deg * (Math.PI/180);
-  };
+  // Используем функцию calculateDistance для аннотаций
   
   // Находим точку для размещения аннотации (около середины маршрута)
   const getAnnotationCoordinate = useCallback(() => {
@@ -892,6 +1234,32 @@ const RouteDirections = ({
     // Получаем координату для аннотации
     const annotationCoordinate = getAnnotationCoordinate();
 
+    // Для Android используем специальный компонент
+    if (Platform.OS === 'android') {
+      return (
+        <>
+          <AndroidRouteView 
+            coordinates={coordinates} 
+            routeInfo={routeInfo} 
+            mode={mode} 
+            strokeColor={currentColor} 
+            strokeWidth={currentWidth} 
+          />
+          
+          {/* Аннотация с временем маршрута */}
+          {routeInfo && annotationCoordinate && (
+            <RouteAnnotation 
+              coordinate={annotationCoordinate}
+              duration={routeInfo.duration}
+              isApproximate={routeInfo.isApproximate}
+              mode={mode}
+            />
+          )}
+        </>
+      );
+    }
+
+    // Для iOS используем стандартный механизм
     return (
       <>
         {/* Рендерим маршрут в зависимости от наличия данных о пробках */}
@@ -946,4 +1314,6 @@ const styles = StyleSheet.create({
   }
 });
 
-export default React.memo(RouteDirections);
+// Оборачиваем компонент в observer для корректной работы с MobX-стором
+// observer уже включает в себя функциональность React.memo
+export default observer(RouteDirections);

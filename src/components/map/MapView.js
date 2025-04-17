@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
 import MapView, { PROVIDER_DEFAULT, UrlTile } from 'react-native-maps';
-import RouteDirections from './RouteDirections';
+import FixedRouteDirections from './FixedRouteDirections';
 
 /**
  * Компонент карты с возможностью отображения маршрутов
@@ -175,15 +175,13 @@ const MapViewComponent = forwardRef(({
           
           {/* Отображение маршрута если данные предоставлены и маршрут не загружается */}
           {routeData && routeData.origin && routeData.destination && !isRouteLoading && (
-            <RouteDirections
+            <FixedRouteDirections
               origin={routeData.origin}
               destination={routeData.destination}
-              waypoints={routeData.waypoints || []}
               mode={routeData.mode || 'DRIVING'}
               onRouteReady={onRouteReady}
               strokeColor="#1a73e8"
               strokeWidth={5}
-              showMarkers={false}
             />
           )}
           

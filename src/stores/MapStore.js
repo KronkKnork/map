@@ -88,14 +88,127 @@ class MapStore {
     this.region = region;
   }
   
+  // Переменные для работы с маршрутами
+  lastRouteRequestTime = 0;
+  routeRequestsCache = {};
+  currentRouteRequests = new Set();
+  apiBlocked = false;
+  apiErrorCount = 0;
+  
+  /**
+   * Проверка возможности выполнения запроса маршрута
+   */
+  canMakeRouteRequest() {
+    const now = Date.now();
+    const timeSinceLastRequest = now - this.lastRouteRequestTime;
+    return timeSinceLastRequest > 1000; // Минимальный интервал между запросами - 1 секунда
+  }
+  
+  /**
+   * Обновление времени последнего запроса
+   */
+  updateLastRequestTime() {
+    this.lastRouteRequestTime = Date.now();
+  }
+  
+  /**
+   * Добавление запроса в список активных
+   */
+  addRouteRequest(requestParams) {
+    this.currentRouteRequests.add(requestParams);
+  }
+  
+  /**
+   * Удаление запроса из списка активных
+   */
+  removeRouteRequest(requestParams) {
+    this.currentRouteRequests.delete(requestParams);
+  }
+  
+  /**
+   * Проверка наличия активного запроса
+   */
+  hasActiveRouteRequest(requestParams) {
+    return this.currentRouteRequests.has(requestParams);
+  }
+  
+  /**
+   * Установка флага блокировки API
+   */
+  setApiBlocked(blocked) {
+    this.apiBlocked = blocked;
+  }
+  
+  /**
+   * Получение состояния блокировки API
+   */
+  get isApiBlocked() {
+    return this.apiBlocked;
+  }
+  
+  /**
+   * Кэширование маршрута
+   */
+  cacheRoute(requestParams, routeData) {
+    this.routeRequestsCache[requestParams] = {
+      ...routeData,
+      timestamp: Date.now()
+    };
+    
+    // Очистка старых записей в кэше
+    const MAX_CACHE_SIZE = 40;
+    const cacheKeys = Object.keys(this.routeRequestsCache);
+    if (cacheKeys.length > MAX_CACHE_SIZE) {
+      const sortedKeys = cacheKeys.sort((a, b) => {
+        return (this.routeRequestsCache[a].timestamp || 0) - (this.routeRequestsCache[b].timestamp || 0);
+      });
+      
+      // Удаляем самые старые записи
+      const keysToDelete = sortedKeys.slice(0, cacheKeys.length - MAX_CACHE_SIZE);
+      keysToDelete.forEach(key => {
+        delete this.routeRequestsCache[key];
+      });
+    }
+  }
+  
+  /**
+   * Получение маршрута из кэша
+   */
+  getCachedRoute(requestParams) {
+    if (!this.routeRequestsCache[requestParams]) {
+      return null;
+    }
+    
+    const cachedData = this.routeRequestsCache[requestParams];
+    const cachedTimestamp = cachedData.timestamp || 0;
+    const currentTime = Date.now();
+    
+    // Используем кэшированные данные, если они не старше 5 минут
+    if (currentTime - cachedTimestamp < 5 * 60 * 1000) {
+      return cachedData;
+    }
+    
+    return null;
+  }
+  
   /**
    * Поиск маршрута между двумя точками
    */
-  async searchRoute(startPoint, endPoint) {
+  async searchRoute(startPoint, endPoint, mode = 'DRIVING') {
     this.isLoading = true;
     this.error = null;
     
     try {
+      // Проверяем, можно ли выполнить запрос
+      if (!this.canMakeRouteRequest()) {
+        this.error = 'Слишком частые запросы';
+        this.isLoading = false;
+        return null;
+      }
+      
+      // Обновляем время последнего запроса
+      this.updateLastRequestTime();
+      
       // Здесь будет API запрос к Open Street Map для получения маршрута
       // Пока используем заглушку
       setTimeout(() => {
@@ -103,6 +216,7 @@ class MapStore {
           this.currentRoute = {
             distance: 5.7, // км
             duration: 15, // минут
+            mode: mode,
             points: [
               { latitude: startPoint.latitude, longitude: startPoint.longitude },
               // Здесь будут промежуточные точки маршрута
@@ -113,11 +227,14 @@ class MapStore {
           this.isLoading = false;
         });
       }, 1500);
+      
+      return this.currentRoute;
     } catch (error) {
       runInAction(() => {
         this.error = error.message;
         this.isLoading = false;
       });
+      return null;
     }
   }
   
