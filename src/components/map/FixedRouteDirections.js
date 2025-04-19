@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { Polyline } from 'react-native-maps';
+// Используем собственную реализацию вместо react-native-maps-directions
 import { observer } from 'mobx-react-lite';
 import { useStore } from '../../stores/StoreContext';
 import { theme } from '../../theme';
 import api from '../../services/api';
+import { toJS } from 'mobx';
 
 /**
  * Полностью переработанный компонент для отображения маршрутов без ошибок
@@ -19,6 +21,7 @@ const FixedRouteDirections = ({
 }) => {
   const [coordinates, setCoordinates] = useState([]);
   const [routeInfo, setRouteInfo] = useState(null);
+  const [isRouteLoading, setIsRouteLoading] = useState(false);
   const mountedRef = useRef(true);
   const initializedRef = useRef(false);
   const rootStore = useStore();
@@ -105,19 +108,20 @@ const FixedRouteDirections = ({
         if (cachedRoute) {
           console.log('Используем маршрут из кэша для режима:', mode);
           
-          // Используем кэшированные данные
+          // Обновляем состояние компонента - преобразуем данные с toJS
           if (mountedRef.current) {
-            setCoordinates(cachedRoute.coordinates || []);
+            setCoordinates(toJS(cachedRoute.coordinates) || []);
             setRouteInfo({
               distance: cachedRoute.distance || 0,
               duration: cachedRoute.duration || 0,
-              isApproximate: cachedRoute.isApproximate || false
+              isApproximate: cachedRoute.isApproximate || false,
+              trafficData: toJS(cachedRoute.trafficData) || []
             });
             
             // Уведомляем о готовности маршрута
             if (onRouteReady && typeof onRouteReady === 'function') {
               onRouteReady({
-                coordinates: cachedRoute.coordinates || [],
+                coordinates: toJS(cachedRoute.coordinates) || [],
                 distance: cachedRoute.distance || 0,
                 duration: cachedRoute.duration || 0,
                 isApproximate: cachedRoute.isApproximate || false,
@@ -129,49 +133,16 @@ const FixedRouteDirections = ({
         }
       }
       
-      // Сначала показываем временный маршрут прямой линией, чтобы пользователь видел отклик
-      const tempDistance = calculateDistance(origin, destination);
-      let tempSpeed = 0.5;
-      
-      switch(mode) {
-        case 'WALKING':
-          tempSpeed = 0.08;
-          break;
-        case 'BICYCLING': 
-          tempSpeed = 0.25;
-          break;
-        case 'TRANSIT':
-          tempSpeed = 0.7;
-          break;
-      }
-      
-      // Создаем временный маршрут прямой линией
-      const tempCoords = [
-        { latitude: origin.latitude, longitude: origin.longitude },
-        { latitude: destination.latitude, longitude: destination.longitude }
-      ];
-      
-      const tempDuration = Math.max(1, Math.round(tempDistance / tempSpeed));
-      
-      // Показываем временный маршрут, пока загружается настоящий
+      // НЕ показываем временный маршрут прямой линией, как запросил пользователь
+      // Вместо этого просто устанавливаем значение isRouteLoading = true и дожидаемся реального маршрута
       if (mountedRef.current) {
-        setCoordinates(tempCoords);
-        setRouteInfo({
-          distance: tempDistance,
-          duration: tempDuration,
-          isApproximate: true
-        });
+        setIsRouteLoading(true);
       }
       
       // Запрашиваем реальный маршрут из API
       try {
-        // Трансформируем режим в формат для API
-        let apiMode = mode;
-        // По API режимы маленькими буквами
-        if (mode === 'DRIVING') apiMode = 'driving';
-        if (mode === 'WALKING') apiMode = 'walking';
-        if (mode === 'BICYCLING') apiMode = 'cycling';
-        if (mode === 'TRANSIT') apiMode = 'transit';
+        // Трансформируем режим в формат для API - оставляем в ВЕРХНЕМ регистре, чтобы API правильно обработал режимы
+        // НЕ преобразуем режимы, их обработает сам API
         
         // Создаем объекты для API из координат
         const originCoord = {
@@ -185,12 +156,12 @@ const FixedRouteDirections = ({
         };
         
         // Запрашиваем маршрут
-        console.log(`Запрашиваем маршрут ${apiMode}...`);
+        console.log(`Запрашиваем маршрут ${mode}...`);
         const result = await api.fetchRouteDirections(
           originCoord,
           destinationCoord,
           [], // waypoints
-          apiMode
+          mode // Используем оригинальный режим в верхнем регистре
         );
         
         // Проверяем, что компонент еще монтирован
@@ -200,17 +171,28 @@ const FixedRouteDirections = ({
         
         // Обновляем состояние компонента
         if (result.coordinates && result.coordinates.length > 0) {
-          setCoordinates(result.coordinates);
+          // Сбрасываем статус загрузки
+          setIsRouteLoading(false);
+          
+          // Для режима автомобиля получаем данные о пробках
+          if (mode === 'DRIVING') {
+            console.log('Запрашиваем данные о пробках для маршрута...');
+            result.trafficData = api.getTrafficData(toJS(result.coordinates), 'DRIVING');
+          }
+          
+          // Используем toJS при установке данных в состояние
+          setCoordinates(toJS(result.coordinates));
           setRouteInfo({
             distance: result.distance,
             duration: result.duration,
-            isApproximate: false
+            isApproximate: false,
+            trafficData: toJS(result.trafficData || [])
           });
           
-          // Уведомляем о готовности маршрута
+          // Уведомляем о готовности маршрута (используем toJS для массивов)
           if (onRouteReady && typeof onRouteReady === 'function') {
             onRouteReady({
-              coordinates: result.coordinates,
+              coordinates: toJS(result.coordinates),
               distance: result.distance,
               duration: result.duration,
               isApproximate: false,
@@ -271,22 +253,76 @@ const FixedRouteDirections = ({
     }
   }, [origin, destination, mode, buildRouteWithApi]);
   
-  // Не рендерим ничего, если нет координат
-  if (!coordinates || coordinates.length < 2) {
+  // Не рендерим ничего, если нет координат или маршрут загружается
+  if (!coordinates || coordinates.length < 2 || isRouteLoading) {
     return null;
   }
   
-  return (
-    <Polyline
-      coordinates={coordinates}
-      strokeColor={getRouteColor()}
-      strokeWidth={strokeWidth}
-      lineDashPattern={getLinePattern()}
-      lineJoin="round"
-      lineCap="round"
-      zIndex={1}
-    />
-  );
+  // Функция для получения цвета сегмента в зависимости от загруженности дороги
+  const getTrafficColor = (trafficValue) => {
+    // Значения трафика от 0 (нет пробок) до 10 (максимальные пробки)
+    // Цвета: зеленый -> желтый -> оранжевый -> красный
+    
+    if (trafficValue <= 3) {
+      // Зеленый - свободная дорога
+      return '#26A65B'; // Зеленый
+    } else if (trafficValue <= 5) {
+      // Желтый - небольшие затруднения
+      return '#F9BF3B'; // Желтый
+    } else if (trafficValue <= 8) {
+      // Оранжевый - значительные затруднения
+      return '#E87E04'; // Оранжевый
+    } else {
+      // Красный - пробки
+      return '#CF000F'; // Красный
+    }
+  };
+  
+  // Отображение маршрута с учетом пробок для режима автомобиля
+  if (mode === 'DRIVING' && routeInfo && routeInfo.trafficData && routeInfo.trafficData.length > 0) {
+    // Преобразуем observable массивы в обычные JS массивы с toJS
+    const jsCoordinates = toJS(coordinates);
+    const jsTrafficData = toJS(routeInfo.trafficData);
+    
+    // Сегментированный маршрут с пробками
+    return (
+      <View>
+        {jsCoordinates.map((coord, index) => {
+          // Пропускаем последнюю точку, так как нам нужны пары точек для сегментов
+          if (index === jsCoordinates.length - 1) return null;
+          
+          // Создаем сегмент маршрута (обычный JS массив, не observable)
+          const segmentCoords = [coord, jsCoordinates[index + 1]];
+          const trafficValue = jsTrafficData[index] || 0;
+          
+          return (
+            <Polyline
+              key={`segment-${index}`}
+              coordinates={segmentCoords}
+              strokeColor={getTrafficColor(trafficValue)}
+              strokeWidth={strokeWidth}
+              lineCap="round"
+              lineJoin="round"
+            />
+          );
+        })}
+      </View>
+    );
+  } else {
+    // Обычный маршрут для других режимов (преобразуем через toJS)
+    return (
+      <View>
+        <Polyline
+          coordinates={toJS(coordinates)}
+          strokeColor={getRouteColor()}
+          strokeWidth={strokeWidth}
+          lineDashPattern={getLinePattern()}
+          lineCap="round"
+          lineJoin="round"
+        />
+      </View>
+    );
+  }
 };
 
 export default observer(FixedRouteDirections);

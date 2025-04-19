@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 import * as Location from 'expo-location';
 
 /**
@@ -16,52 +17,93 @@ export const useLocation = () => {
     latitudeDelta: 0.1,
     longitudeDelta: 0.1
   });
-  const [locationPermission, setLocationPermission] = useState(false);
   
-  // Эффект для получения разрешения на доступ к местоположению
+  // Добавляем состояния для улучшенного UX
+  // Флаг разрешения на геолокацию
+  const [locationPermission, setLocationPermission] = useState(null);
+  // Флаг загрузки местоположения (для отображения уведомления)
+  const [isLocationLoading, setIsLocationLoading] = useState(true);
+  // Флаг готовности карты к отображению
+  const [isMapReady, setIsMapReady] = useState(false);
+  
+  // Функция запроса разрешения на геолокацию
+  const requestLocationPermission = async () => {
+    setIsLocationLoading(true);
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      
+      if (status !== 'granted') {
+        setErrorMsg('Для работы приложения необходимо разрешение на доступ к геолокации');
+        setLocationPermission(false);
+        setIsLocationLoading(false);
+        return false;
+      }
+      
+      setLocationPermission(true);
+      return true;
+    } catch (error) {
+      console.error('Ошибка при запросе разрешения:', error);
+      setLocationPermission(false);
+      setIsLocationLoading(false);
+      return false;
+    }
+  };
+  
+  // Функция получения местоположения
+  const fetchLocation = async () => {
+    try {
+      console.log('Получение геолокации...');
+      
+      // Получаем текущее местоположение с высокой точностью
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Platform.OS === 'android' ? Location.Accuracy.High : Location.Accuracy.Balanced,
+        timeout: 15000 // Увеличиваем таймаут для Android
+      });
+      
+      setLocation(location);
+      
+      // Если получили координаты, устанавливаем их в регион
+      if (location && location.coords) {
+        console.log('Получены координаты:', location.coords.latitude, location.coords.longitude);
+        
+        const newRegion = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02
+        };
+        
+        setRegion(newRegion);
+        
+        // Объявляем карту готовой к отображению
+        setIsMapReady(true);
+        
+        // Завершаем загрузку
+        setIsLocationLoading(false);
+        
+        return true;
+      }
+    } catch (error) {
+      console.error('Ошибка получения местоположения:', error);
+      setErrorMsg('Ошибка получения местоположения: ' + error.message);
+      setIsLocationLoading(false);
+    }
+    
+    return false;
+  };
+  
+  // Эффект для инициализации геолокации
   useEffect(() => {
     (async () => {
-      try {
-        let { status } = await Location.requestForegroundPermissionsAsync();
-        
-        if (status !== 'granted') {
-          setErrorMsg('Для работы приложения необходимо разрешение на доступ к геолокации');
-          setLocationPermission(false);
-          return;
-        }
-        
-        setLocationPermission(true);
-        
-        // Получаем текущее местоположение
-        let location = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced
-        });
-        
-        setLocation(location);
-        
-        // Устанавливаем начальный регион для карты всегда при получении первого местоположения
-        if (location && location.coords) {
-          const newRegion = {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.02,
-            longitudeDelta: 0.02
-          };
-          setRegion(newRegion);
-          
-          // Добавляем небольшую задержку для обновления региона
-          // Это помогает решить проблему с начальным отображением
-          setTimeout(() => {
-            setRegion({
-              ...newRegion,
-              latitudeDelta: 0.019, // Немного изменяем значение для гарантированного обновления
-              longitudeDelta: 0.019
-            });
-          }, 500);
-        }
+      // Запрашиваем разрешение
+      const hasPermission = await requestLocationPermission();
+      
+      if (hasPermission) {
+        // Если разрешение получено, получаем местоположение
+        await fetchLocation();
         
         // Подписка на обновления местоположения
-        const watchId = Location.watchPositionAsync(
+        const watchId = await Location.watchPositionAsync(
           {
             accuracy: Location.Accuracy.Balanced,
             timeInterval: 5000,
@@ -74,11 +116,8 @@ export const useLocation = () => {
         
         // Отписка при размонтировании компонента
         return () => {
-          watchId.then(subscription => subscription.remove());
+          watchId.remove();
         };
-      } catch (error) {
-        setErrorMsg('Ошибка получения местоположения: ' + error.message);
-        console.error('Ошибка геолокации:', error);
       }
     })();
   }, []);
@@ -122,9 +161,13 @@ export const useLocation = () => {
     region,
     setRegion,
     locationPermission,
+    isLocationLoading,
+    isMapReady,
     centerOnUserLocation,
-    calculateDistance
+    calculateDistance,
+    requestLocationPermission,
+    fetchLocation
   };
 };
 
-export default useLocation; 
+export default useLocation;

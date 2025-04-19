@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -31,8 +31,15 @@
       "package": "com.jamstyle.MapEase",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
-      ]
+        "ACCESS_FINE_LOCATION",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyCq1vLzFnjX-gwc-2-ONM5jtxRxDmSs6DA"
+        }
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -41,7 +48,7 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "MapEase требует доступ к вашей геолокации для отображения на карте и навигации."
+          "locationAlwaysAndWhenInUsePermission": "Разрешите доступ к местоположению для отображения вашей позиции на карте"
         }
       ]
     ],
@@ -51,9 +58,7 @@
       }
     },
     "owner": "jamstyle",
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/699756f9-505f-4cff-a6ae-0cc528d2b1e7"
     }

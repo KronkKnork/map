@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react';
-import { StyleSheet, View, Platform } from 'react-native';
-import MapView, { PROVIDER_DEFAULT, UrlTile } from 'react-native-maps';
+import { StyleSheet, View, Platform, Text } from 'react-native';
+import MapView, { PROVIDER_GOOGLE, PROVIDER_DEFAULT, UrlTile, Marker, Callout } from 'react-native-maps';
 import FixedRouteDirections from './FixedRouteDirections';
+import { logMapInfo } from '../../utils/DebugHelper';
 
 /**
  * Компонент карты с возможностью отображения маршрутов
@@ -33,21 +34,40 @@ const MapViewComponent = forwardRef(({
            internalRegion;
   }, [region, userLocation, internalRegion]);
   
-  // Мемоизируем начальный регион только из переданного региона или местоположения,
-  // избегая дефолтных координат Москвы, чтобы карта не показывала их вначале
+  // Мемоизируем начальный регион только из переданного региона или местоположения
   const initialRegion = React.useMemo(() => {
+    // Для Android релизной сборки используем более надежную инициализацию
+    if (Platform.OS === 'android' && !__DEV__) {
+      logMapInfo('Используем фиксированный начальный регион для Android релиза');
+      return {
+        latitude: 55.751244,
+        longitude: 37.618423,
+        latitudeDelta: 0.1, // Увеличенное значение для более надежной загрузки
+        longitudeDelta: 0.1
+      };
+    }
+
     if (region) {
+      logMapInfo('Используем переданный регион: ' + JSON.stringify(region));
       return region;
     } else if (userLocation && userLocation.coords) {
+      logMapInfo('Используем местоположение пользователя для начального региона');
       return {
         latitude: userLocation.coords.latitude,
         longitude: userLocation.coords.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02
       };
     }
-    return null;
-  }, []);
+    
+    logMapInfo('Используем дефолтный регион');
+    return {
+      latitude: 55.751244,
+      longitude: 37.618423,
+      latitudeDelta: 0.1,
+      longitudeDelta: 0.1
+    };
+  }, [region, userLocation]);
   
   // Ссылка на компонент карты
   const mapRef = useRef(null);
@@ -74,12 +94,25 @@ const MapViewComponent = forwardRef(({
   }, [onRegionChange]);
   
   // Обработчик нажатия на карту
-  const handlePress = useCallback((event) => {
-    // Обработка нажатия на карту только если предоставлен обработчик
-    if (onPress) {
-      onPress(event);
+  const handleMapPress = useCallback((event) => {
+    try {
+      if (onPress) {
+        onPress(event);
+      }
+    } catch (error) {
+      console.error('Error in MapView handleMapPress:', error);
     }
   }, [onPress]);
+
+  // Глобальный обработчик ошибок для действий с картой
+  const safelyExecute = useCallback((fn, ...args) => {
+    try {
+      return fn(...args);
+    } catch (error) {
+      console.error('Error in MapView operation:', error);
+      return null;
+    }
+  }, []);
   
   // Обработчик начала перемещения карты
   const handlePanDrag = useCallback(() => {
@@ -88,14 +121,75 @@ const MapViewComponent = forwardRef(({
   
   // Обработчик загрузки карты
   const handleMapReady = useCallback(() => {
+    logMapInfo('onMapReady вызван');
+    console.log('MapView: onMapReady вызван');
     initialLoadDoneRef.current = true;
+    
+    // Фиксированный регион для инициализации
+    const defaultRegion = {
+      latitude: 55.751244,
+      longitude: 37.618423,
+      latitudeDelta: 0.1,
+      longitudeDelta: 0.1
+    };
+    
+    if (mapRef.current && (!region && !userLocation)) {
+      // Если нет других регионов, используем фиксированный
+      setTimeout(() => {
+        try {
+          mapRef.current.animateToRegion(defaultRegion, 100);
+        } catch (e) {
+          console.error('Error animating to region:', e);
+        }
+      }, 300);
+    }
     
     // Если есть начальный регион - используем его
     if (initialRegion && mapRef.current) {
+      logMapInfo('Анимируем к начальному региону: ' + 
+        JSON.stringify({
+          lat: initialRegion.latitude,
+          lng: initialRegion.longitude,
+          delta: initialRegion.latitudeDelta
+        }));
+      console.log('MapView: Анимируем к начальному региону', initialRegion);
       mapRef.current.animateToRegion(initialRegion, 500);
+    } else {
+      logMapInfo('Нет начального региона или mapRef');
+      console.log('MapView: Нет начального региона или mapRef');
+    }
+    
+    // Проверка API ключа для Android в релизной сборке
+    if (Platform.OS === 'android' && !__DEV__) {
+      logMapInfo('Проверяем API ключ для Google Maps');
+      try {
+        // Проверка наличия объекта карты
+        if (mapRef.current && mapRef.current._rendererComponent) {
+          logMapInfo('Renderer компонент карты существует');
+        }
+      } catch (error) {
+        logMapInfo('Ошибка при проверке Google Maps API: ' + error.message);
+      }
     }
   }, [initialRegion]);
   
+  // Таймаут для гарантированной инициализации карты
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!initialLoadDoneRef.current) {
+        logMapInfo('Карта не была инициализирована в течение 5 секунд, выполняем принудительную инициализацию');
+        initialLoadDoneRef.current = true;
+        
+        if (mapRef.current && initialRegion) {
+          logMapInfo('Принудительная анимация к начальному региону');
+          mapRef.current.animateToRegion(initialRegion, 500);
+        }
+      }
+    }, 5000);
+    
+    return () => clearTimeout(timer);
+  }, [initialRegion]);
+
   // Предоставляем методы для внешнего доступа через ref
   useImperativeHandle(ref, () => ({
     animateToRegion: (targetRegion, duration = 1000) => {
@@ -136,59 +230,77 @@ const MapViewComponent = forwardRef(({
   // Скрываем его, если активен режим маршрутизации (есть данные маршрута)
   const showUserLocation = !!userLocation && !routeData;
 
+  // Добавляем отладочную информацию о загрузке карты
+  useEffect(() => {
+    // Логируем начальные параметры карты
+    logMapInfo(`Параметры карты: platform=${Platform.OS}, dev=${__DEV__}, provider=${Platform.OS === 'android' ? 'GOOGLE' : 'DEFAULT'}, hasValidRegion=${hasValidRegion}`);
+    
+    // Проверяем стили
+    logMapInfo(`Стили карты: ${JSON.stringify(styles.map)}`);
+  }, [hasValidRegion]);
+
+  // Рендер компонента карты
   return (
     <View style={styles.container}>
-      {hasValidRegion && (
-        <MapView
-          ref={mapRef}
-          style={styles.map}
-          provider={PROVIDER_DEFAULT}
-          initialRegion={initialRegion}
-          region={internalRegion}
-          mapType={mapType}
-          rotateEnabled={rotateEnabled}
-          zoomEnabled={true}
-          scrollEnabled={true}
-          pitchEnabled={true}
-          toolbarEnabled={false}
-          moveOnMarkerPress={false}
-          onPress={handlePress}
-          onRegionChangeComplete={handleRegionChange}
-          onPanDrag={handlePanDrag}
-          onMapReady={handleMapReady}
-          showsUserLocation={showUserLocation}
-          followsUserLocation={false}
-          showsMyLocationButton={false}
-          showsCompass={true}
-          loadingEnabled={true}
-          showsScale={true}
-          minZoomLevel={3}
-          maxZoomLevel={19}
-        >
-          {/* URL-тайлы OpenStreetMap */}
+      {!hasValidRegion && (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#1a73e8" />
+          <Text style={styles.loadingText}>Загрузка карты...</Text>
+        </View>
+      )}
+
+      <MapView
+        ref={mapRef}
+        style={styles.map}
+        initialRegion={initialRegion}
+        region={(hasValidRegion && !isUserInteractingRef.current) ? region : undefined}
+        provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : PROVIDER_DEFAULT}
+        mapType="standard"
+        rotateEnabled={rotateEnabled}
+        zoomEnabled={true}
+        scrollEnabled={true}
+        pitchEnabled={true}
+        toolbarEnabled={false}
+        moveOnMarkerPress={false}
+        onPress={handleMapPress}
+        onRegionChangeComplete={handleRegionChange}
+        onPanDrag={handlePanDrag}
+        onMapReady={handleMapReady}
+        showsUserLocation={!!userLocation}
+        followsUserLocation={false}
+        showsMyLocationButton={false}
+        showsCompass={true}
+        loadingEnabled={true}
+        showsScale={true}
+        showsBuildings={Platform.OS === 'android'}
+        showsTraffic={false}
+        showsIndoors={false}
+        showsIndoorLevelPicker={false}
+        minZoomLevel={3}
+        maxZoomLevel={19}
+      >
+        {/* Тайлы OpenStreetMap только для iOS, т.к. на Android используем Google Maps */}
+        {Platform.OS === 'ios' && (
           <UrlTile 
             urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
             maximumZ={19}
             flipY={false}
-            zIndex={-1}
           />
-          
-          {/* Отображение маршрута если данные предоставлены и маршрут не загружается */}
-          {routeData && routeData.origin && routeData.destination && !isRouteLoading && (
-            <FixedRouteDirections
-              origin={routeData.origin}
-              destination={routeData.destination}
-              mode={routeData.mode || 'DRIVING'}
-              onRouteReady={onRouteReady}
-              strokeColor="#1a73e8"
-              strokeWidth={5}
-            />
-          )}
-          
-          {/* Отображаем дочерние элементы (маркеры и т.д.) */}
-          {children}
-        </MapView>
-      )}
+        )}
+        
+        {routeData && routeData.origin && routeData.destination && !isRouteLoading && (
+          <FixedRouteDirections
+            origin={routeData.origin}
+            destination={routeData.destination}
+            mode={routeData.mode || 'DRIVING'}
+            onRouteReady={onRouteReady}
+            strokeColor="#1a73e8"
+            strokeWidth={5}
+          />
+        )}
+        
+        {children}
+      </MapView>
     </View>
   );
 });
@@ -197,12 +309,27 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    overflow: 'hidden',
+    position: 'relative', // Добавляем для корректного позиционирования
   },
   map: {
-    ...StyleSheet.absoluteFillObject,
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#e0e0e0', // Добавляем цвет фона для визуальной отладки
+    position: 'absolute', // Расположение карты
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  loadingContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
   }
 });
 

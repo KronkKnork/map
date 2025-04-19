@@ -1,14 +1,16 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Keyboard, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import MapViewComponent from '../components/map/MapView';
+import MapViewComponent from '../components/map'; // Импортируем из index.js для надежности
+import SafeMapWrapper from '../components/map/SafeMapWrapper';
 import RouteBottomPanel from '../components/route/RouteBottomPanel';
 import SearchBar from '../components/search/SearchBar';
 import SearchResults from '../components/search/SearchResults';
 import SelectedPlaceMarker from '../components/map/SelectedPlaceMarker';
 import SelectedPlaceInfo from '../components/map/SelectedPlaceInfo';
 import RouteMarkers from '../components/map/RouteMarkers';
+// import LocationPermissionOverlay from '../components/common/LocationPermissionOverlay';
 import { theme } from '../theme';
 
 // Импортируем созданные хуки
@@ -28,7 +30,13 @@ const MapScreen = () => {
     region, 
     setRegion, 
     centerOnUserLocation, 
-    calculateDistance 
+    calculateDistance,
+    // Дополнительные состояния для отображения оверлея
+    locationPermission,
+    isLocationLoading,
+    isMapReady,
+    requestLocationPermission,
+    fetchLocation
   } = useLocation();
   
   const {
@@ -109,7 +117,15 @@ const MapScreen = () => {
   // Рендер компонента
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {!isMapExpanded && (
+      {/* Закомментировал оверлей, чтобы сделать успешный билд */}
+      {/* <LocationPermissionOverlay
+        permissionDenied={locationPermission === false}
+        isLoading={isLocationLoading && locationPermission === true}
+        onRequestPermission={requestLocationPermission}
+      /> */}
+      
+      {/* Панель поиска */}
+      {!isRouting && !isMapExpanded && (
         <>
           <View style={styles.searchContainer}>
             <SearchBar
@@ -149,60 +165,67 @@ const MapScreen = () => {
       )}
       
       <View style={[styles.mapContainer, isMapExpanded && styles.mapContainerFullscreen]}>
-        <MapViewComponent
-          ref={mapRef}
-          region={region}
-          onRegionChange={handleRegionChange}
-          onPress={(e) => {
-            handleMapPressWrapper(e);
-            Keyboard.dismiss();
-          }}
-          mapType={currentMapType}
-          rotateEnabled={!isRouting}
-          userLocation={location}
-          routeData={getRouteDataForMap()}
-          onRouteReady={handleRouteReady}
-          isRouteLoading={isCurrentRouteLoading()}
-        >
-          {/* Маркер выбранного места (не в режиме маршрута) */}
-          {selectedLocation && (
-            <SelectedPlaceMarker 
-              location={selectedLocation} 
-              placeInfo={selectedPlaceInfo} 
-              isRouting={isRouting}
-            />
-          )}
-          
-          {/* Маркеры маршрута (начало и конец) */}
-          <RouteMarkers 
-            {...getRouteEndpoints()}
-            isRouting={isRouting && !isCurrentRouteLoading()}
-          />
-          
-          {/* Индикатор загрузки маршрута */}
-          {isRouting && isCurrentRouteLoading() && (
-            <View style={styles.routeLoadingContainer}>
-              <ActivityIndicator size="large" color={theme.colors.primary} />
-              <Text style={styles.routeLoadingText}>
-                Строится маршрут {getTransportTypeFromMode(routeMode) === 'car' ? 'на автомобиле' : 
-                  getTransportTypeFromMode(routeMode) === 'walk' ? 'пешком' : 
-                  getTransportTypeFromMode(routeMode) === 'bicycle' ? 'на велосипеде' : 
-                  'на общественном транспорте'}...
-              </Text>
-            </View>
-          )}
-        </MapViewComponent>
-
-        {/* Кнопка центрирования на текущем местоположении */}
-        <TouchableOpacity
-          style={[styles.mapControl, styles.locationButton]}
-          onPress={() => centerOnUserLocation(mapRef)}
-        >
-          <Ionicons name="locate" size={24} color={theme.colors.primary} />
-        </TouchableOpacity>
-
-        {/* Кнопки для контроля карты (слои, типы карты) */}
-        <View style={styles.mapControlsContainer}>
+        <View style={{ flex: 1 }}>
+          <SafeMapWrapper fallbackMessage="Убедитесь, что у вас есть подключение к интернету, и попробуйте перезапустить приложение.">
+            <MapViewComponent
+              ref={mapRef}
+              region={region}
+              onRegionChange={handleRegionChange}
+              onPress={(e) => {
+                try {
+                  handleMapPressWrapper(e);
+                  Keyboard.dismiss();
+                } catch (error) {
+                  console.error('Ошибка при нажатии на карту:', error);
+                }
+              }}
+              mapType={'standard'}
+              rotateEnabled={!isRouting}
+              userLocation={location}
+              routeData={getRouteDataForMap()}
+              onRouteReady={handleRouteReady}
+              isRouteLoading={isCurrentRouteLoading()}
+            >
+              {/* Маркер выбранного места (не в режиме маршрута) */}
+              {selectedLocation && (
+                <SelectedPlaceMarker 
+                  location={selectedLocation} 
+                  placeInfo={selectedPlaceInfo} 
+                  isRouting={isRouting}
+                />
+              )}
+              
+              {/* Маркеры маршрута (начало и конец) */}
+              <RouteMarkers 
+                {...getRouteEndpoints()}
+                isRouting={isRouting && !isCurrentRouteLoading()}
+              />
+              
+              {/* Индикатор загрузки маршрута */}
+              {isRouting && isCurrentRouteLoading() && (
+                <View style={styles.routeLoadingContainer}>
+                  <ActivityIndicator size="large" color={theme.colors.primary} />
+                  <Text style={styles.routeLoadingText}>
+                    Строится маршрут {getTransportTypeFromMode(routeMode) === 'car' ? 'на автомобиле' : 
+                      getTransportTypeFromMode(routeMode) === 'walk' ? 'пешком' : 
+                      getTransportTypeFromMode(routeMode) === 'bicycle' ? 'на велосипеде' : 
+                      'на общественном транспорте'}...
+                  </Text>
+                </View>
+              )}
+            </MapViewComponent>
+          </SafeMapWrapper>
+  
+          {/* Кнопка центрирования на текущем местоположении */}
+          <TouchableOpacity
+            style={[styles.mapControl, styles.locationButton]}
+            onPress={() => centerOnUserLocation(mapRef)}
+          >
+            <Ionicons name="locate" size={24} color={theme.colors.primary} />
+          </TouchableOpacity>
+  
+          {/* Кнопки для контроля карты (слои, типы карты) */}
+          <View style={styles.mapControlsContainer}>
           <TouchableOpacity
             style={[styles.mapControl, styles.layersButton]}
             onPress={toggleLayersMenu}
@@ -278,6 +301,7 @@ const MapScreen = () => {
             onSwapDirection={() => setIsReverseRoute(!isReverseRoute)}
           />
         )}
+        </View>
       </View>
     </SafeAreaView>
   );
