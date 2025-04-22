@@ -146,6 +146,12 @@ export const useSearch = ({ location, calculateDistance }) => {
         onRouteCancel();
       }
       
+      // Очищаем все старые метки перед добавлением новой
+      if (mapRef?.current?.clearMarkers) {
+        console.log('🗑 Очистка старых меток перед добавлением новой');
+        mapRef.current.clearMarkers();
+      }
+      
       // Создаем информацию о выбранном месте
       const placeInfo = {
         name: result.name || 'Выбранное место',
@@ -228,6 +234,12 @@ export const useSearch = ({ location, calculateDistance }) => {
       
       console.log('Установка координат из тапа по карте:', newLocation);
       
+      // Очищаем все старые метки перед добавлением новой
+      if (mapRef?.current?.clearMarkers) {
+        console.log('🗑 Очистка старых меток при тапе по карте');
+        mapRef.current.clearMarkers();
+      }
+      
       // Устанавливаем выбранную локацию
       setSelectedLocation(newLocation);
       
@@ -239,12 +251,12 @@ export const useSearch = ({ location, calculateDistance }) => {
         onRouteCancel();
       }
       
-      // Перемещаем карту к выбранной точке
+      // Перемещаем карту к выбранной точке с большим приближением
       mapRef?.current?.animateToRegion({
         latitude: newLocation.latitude,
         longitude: newLocation.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01
+        latitudeDelta: 0.001, // Уменьшаем значение для большего приближения
+        longitudeDelta: 0.001
       }, 300);
       
       // Получаем информацию о месте по координатам
