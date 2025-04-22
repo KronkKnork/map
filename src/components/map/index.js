@@ -1,4 +1,5 @@
-import MapViewComponent from './MapView';
+// Используем WebView + Leaflet вместо Google Maps
+import SimpleOSMMapView from './SimpleOSMMapView';
 
-export { MapViewComponent };
-export default MapViewComponent;
+export { SimpleOSMMapView as MapViewComponent };
+export default SimpleOSMMapView;

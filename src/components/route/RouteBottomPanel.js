@@ -152,8 +152,26 @@ const RouteBottomPanel = ({
     public_transport: isTabLoading('public_transport')
   };
 
+  // Состояние для блокировки кнопки после нажатия
+  const [isSwapButtonDisabled, setIsSwapButtonDisabled] = useState(false);
+
   // Обработчик нажатия на кнопку смены направления
   const handleSwapDirection = () => {
+    // Проверяем, не идет ли загрузка каких-либо маршрутов
+    const isAnyRouteLoading = Object.values(routesLoading).some(loading => loading);
+    
+    // Если кнопка заблокирована или идет загрузка маршрутов, игнорируем нажатие
+    if (isSwapButtonDisabled || isAnyRouteLoading) {
+      console.log('Нельзя менять направление маршрута: кнопка заблокирована или идет загрузка');
+      return;
+    }
+    
+    // Блокируем кнопку на 2 секунды
+    setIsSwapButtonDisabled(true);
+    setTimeout(() => {
+      setIsSwapButtonDisabled(false);
+    }, 2000);
+    
     if (onSwapDirection) {
       onSwapDirection();
     }
