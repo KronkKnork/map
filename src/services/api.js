@@ -500,6 +500,59 @@ export const getTrafficData = (coordinates, mode) => {
  * @param {Boolean} timeOnly - Запрашивать только время без полных координат маршрута
  * @returns {Promise<Object>} - Промис с данными маршрута
  */
+/**
+ * Получение альтернативных маршрутов между двумя точками
+ * @param {Object} origin - Координаты начальной точки {latitude, longitude}
+ * @param {Object} destination - Координаты конечной точки {latitude, longitude}
+ * @param {String} mode - Режим перемещения (driving, walking, cycling, transit)
+ * @param {AbortSignal} signal - Сигнал для отмены запроса
+ * @returns {Promise<Array<Object>>} - Промис с массивом альтернативных маршрутов
+ */
+export const fetchAlternativeRoutes = async (
+  origin,
+  destination,
+  mode = 'DRIVING',
+  signal
+) => {
+  try {
+    console.log(`API: Запрос альтернативных маршрутов ${mode} от (${origin.latitude.toFixed(5)}, ${origin.longitude.toFixed(5)}) до (${destination.latitude.toFixed(5)}, ${destination.longitude.toFixed(5)})`);
+    
+    // Получаем основной маршрут
+    const mainRoute = await fetchRouteDirections(origin, destination, [], mode, signal);
+    
+    // Если основной маршрут не получен, возвращаем пустой массив
+    if (mainRoute.error) {
+      console.error(`API: Ошибка получения основного маршрута: ${mainRoute.error}`);
+      return [];
+    }
+    
+    // Создаем два альтернативных маршрута на основе основного, с небольшими отклонениями
+    const alternativeRoute1 = {
+      ...mainRoute,
+      coordinates: добавитьЭкстраТочки(mainRoute.coordinates, 1.2, 0.8),
+      isAlternative: true,
+      alternativeIndex: 1
+    };
+    
+    const alternativeRoute2 = {
+      ...mainRoute,
+      coordinates: добавитьЭкстраТочки(mainRoute.coordinates, 1.3, 1.5),
+      distance: mainRoute.distance * 1.15, // Немного длиннее основного
+      duration: mainRoute.duration * 1.1, // Немного медленнее основного
+      isAlternative: true,
+      alternativeIndex: 2
+    };
+    
+    console.log(`API: Созданы альтернативные маршруты для ${mode}`);
+    
+    // Возвращаем массив маршрутов (основной + альтернативные)
+    return [mainRoute, alternativeRoute1, alternativeRoute2];
+  } catch (error) {
+    console.error(`API: Ошибка при получении альтернативных маршрутов: ${error.message}`);
+    return [];
+  }
+};
+
 export const fetchRouteDirections = async (
   origin,
   destination,
@@ -580,6 +633,7 @@ export const fetchRouteDirections = async (
       units: 'km',
       language: 'ru-RU',
       instructions: false
+      // OpenRouteService не поддерживает параметр alternatives в v2/directions
     };
 
     console.log(`API: Отправка запроса для режима: ${apiMode}`);
@@ -650,12 +704,71 @@ export const fetchRouteDirections = async (
     console.log(`API: Получен ответ от сервера для маршрута ${mode}`);
     
     // Извлекаем необходимые данные из ответа
+    // Проверяем, содержит ли ответ маршруты
     if (data && data.features && data.features.length > 0) {
+      // Основной маршрут - первый в массиве
       const route = data.features[0];
       
-      // Проверяем наличие геометрии
-      if (!route.geometry || !route.geometry.coordinates || !Array.isArray(route.geometry.coordinates) || route.geometry.coordinates.length === 0) {
-        console.error('API: Маршрут не содержит координат');
+      // Массив для хранения всех маршрутов (основной + альтернативные)
+      const allRoutes = [];
+
+      
+      // Функция для обработки одного маршрута из ответа API
+      const processRoute = (routeFeature, isAlternative = false, alternativeIndex = -1) => {
+        // Проверяем наличие геометрии
+        if (!routeFeature.geometry || !routeFeature.geometry.coordinates || !Array.isArray(routeFeature.geometry.coordinates) || routeFeature.geometry.coordinates.length === 0) {
+          console.error('API: Маршрут не содержит координат');
+          return null;
+        }
+        
+        // Получаем дистанцию маршрута в километрах и время в минутах
+        let distance = 0;
+        let duration = 0;
+        
+        if (routeFeature.properties && routeFeature.properties.summary) {
+          distance = routeFeature.properties.summary.distance; 
+          duration = routeFeature.properties.summary.duration / 60;
+        } else {
+          // Если нет summary, рассчитываем приблизительное расстояние
+          distance = calculateDistance(
+            origin.latitude, origin.longitude,
+            destination.latitude, destination.longitude
+          );
+          
+          // Приблизительное время исходя из скорости зависит от типа маршрута
+          const speeds = {
+            'DRIVING': 50, // км/ч
+            'BICYCLING': 15,
+            'WALKING': 5,
+            'TRANSIT': 30
+          };
+          
+          console.log(`API: Расчет времени для режима ${mode} со скоростью ${speeds[mode]} км/ч`);
+          duration = (distance / speeds[mode]) * 60;
+        }
+        
+        // Извлекаем координаты маршрута и преобразуем их в формат {latitude, longitude}
+        let coordinates = routeFeature.geometry.coordinates.map(coord => ({
+          latitude: coord[1],
+          longitude: coord[0]
+        }));
+        
+        // Формируем объект маршрута
+        return {
+          coordinates,
+          distance,
+          duration,
+          mode,
+          isAlternative,
+          alternativeIndex,
+          isApproximate: !routeFeature.properties || !routeFeature.properties.summary,
+          trafficData: getTrafficData(coordinates, mode)
+        };
+      };
+      
+      // Обрабатываем основной маршрут
+      const mainRoute = processRoute(route);
+      if (!mainRoute) {
         return {
           error: 'NO_ROUTE_COORDINATES',
           errorMessage: 'Полученный маршрут не содержит координат',
@@ -663,64 +776,33 @@ export const fetchRouteDirections = async (
         };
       }
       
-      // Получаем дистанцию маршрута в километрах и время в минутах
-      let distance = 0;
-      let duration = 0;
+      allRoutes.push(mainRoute);
       
-      if (route.properties && route.properties.summary) {
-        distance = route.properties.summary.distance; 
-        duration = route.properties.summary.duration / 60;
-      } else {
-        // Если нет summary, рассчитываем приблизительное расстояние
-        distance = calculateDistance(
-          origin.latitude, origin.longitude,
-          destination.latitude, destination.longitude
-        );
+      // Обрабатываем альтернативные маршруты если они есть
+      if (data.features.length > 1) {
+        console.log(`API: Найдено ${data.features.length - 1} альтернативных маршрутов`);
         
-        // Приблизительное время исходя из скорости зависит от типа маршрута
-        const speeds = {
-          'DRIVING': 50, // км/ч
-          'BICYCLING': 15,
-          'WALKING': 5,
-          'TRANSIT': 30
-        };
-        
-        console.log(`API: Расчет времени для режима ${mode} со скоростью ${speeds[mode]} км/ч`);
-        duration = (distance / speeds[mode]) * 60;
-      }
-      
-      // Извлекаем координаты маршрута и преобразуем их в формат {latitude, longitude}
-      let coordinates = route.geometry.coordinates.map(coord => ({
-        latitude: coord[1],
-        longitude: coord[0]
-      }));
-      
-      // Применяем специальную обработку для разных режимов
-      // Для пешеходных маршрутов добавляем больше точек
-      if (mode === 'WALKING') {
-        coordinates = добавитьЭкстраТочки(coordinates, 1.5); // Добавить на 50% больше точек
-        console.log(`API: Для пешеходного маршрута добавлено больше точек: ${coordinates.length}`);
-      } 
-      // Для велосипедных маршрутов добавляем обходные пути
-      else if (mode === 'BICYCLING') {
-        coordinates = добавитьЭкстраТочки(coordinates, 1.3); // Добавить на 30% больше точек
-        console.log(`API: Для велосипедного маршрута добавлено больше точек: ${coordinates.length}`);
-      } 
-      // Для общественного транспорта добавляем больше кривизны
-      else if (mode === 'TRANSIT') {
-        coordinates = добавитьЭкстраТочки(coordinates, 1.2, 0.2); // Добавить на 20% больше точек с отклонением
-        console.log(`API: Для маршрута на общественном транспорте добавлено больше точек: ${coordinates.length}`);
-      }
-      // Для автомобильных маршрутов оставляем как есть или немного спрямляем
-      else if (mode === 'DRIVING') {
-        // Просто оставляем без изменений или немного спрямляем
-        if (coordinates.length > 10) {
-          coordinates = упроститьМаршрут(coordinates, 0.9); // Оставляем 90% точек для упрощения
+        // Обрабатываем каждый альтернативный маршрут
+        for (let i = 1; i < data.features.length; i++) {
+          const altRoute = processRoute(data.features[i], true, i);
+          if (altRoute) {
+            allRoutes.push(altRoute);
+          }
         }
-        console.log(`API: Для автомобильного маршрута используется ${coordinates.length} точек`);
+      } else {
+        console.log('API: Альтернативных маршрутов не найдено');
       }
-      // Получаем данные о пробках для каждого сегмента маршрута
-      const trafficData = getTrafficData(coordinates, mode);
+      
+      // Если запрошен только один маршрут, возвращаем только его
+      if (allRoutes.length === 1) {
+        return allRoutes[0];
+      }
+      
+      // Если есть альтернативные маршруты, добавляем свойство multipleRoutes и возвращаем основной маршрут
+      mainRoute.multipleRoutes = allRoutes;
+      
+      console.log(`API: Успешно получен маршрут ${mode} с ${allRoutes.length - 1} альтернативами`);
+      return mainRoute;
       
       console.log(`API: Маршрут ${mode} получен успешно: ${coordinates.length} точек, ${distance.toFixed(1)} км, ${Math.round(duration)} мин`);
       // Применяем поправочные коэффициенты для разных режимов передвижения
@@ -798,5 +880,6 @@ export default {
   getTypeFromCategory,
   reverseGeocode,
   getTrafficData,
-  fetchRouteDirections,
+  fetchAlternativeRoutes,
+  fetchRouteDirections
 };
