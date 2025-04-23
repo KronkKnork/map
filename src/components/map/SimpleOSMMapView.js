@@ -1,7 +1,17 @@
+/**
+ * Упрощенная и надежная карта на основе OpenStreetMap + Leaflet с использованием WebView.
+ * Реализует основные функции: отображение карты, геолокация, управление маркерами и маршрутами.
+ */
 import React, { useState, useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { StyleSheet, View, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { getLeafletMapHtml, sendRoutePointsToMap } from '../../utils/LeafletMapHelper';
+import { sendCustomRouteToMap } from '../../utils/CustomRouteHelper';
+
+// Переменные для хранения последнего маршрута
+let lastRouteStart = null;
+let lastRouteEnd = null;
+let lastRouteMode = 'DRIVING';
 
 /**
  * Упрощенная и надежная карта на основе OpenStreetMap + Leaflet с использованием WebView.
@@ -213,11 +223,21 @@ const SimpleOSMMapView = forwardRef(({
       }
     },
     
-    // Построение маршрута
+    // Построение маршрута с кастомными маркерами
     calculateRoute: (startPoint, endPoint, mode, routePoints) => {
-      // Если есть уже готовые точки маршрута, отправляем их
+      // Запоминаем последние координаты маршрута для возможного отображения альтернатив
+      lastRouteStart = startPoint;
+      lastRouteEnd = endPoint;
+      lastRouteMode = mode;
+      
+      // Если есть уже готовые точки маршрута, отправляем их через кастомную функцию
       if (routePoints && routePoints.length > 1) {
-        sendRoutePointsToMap(webViewRef, routePoints, mode);
+        // Отправляем маршрут с кастомными маркерами
+        sendCustomRouteToMap(webViewRef, routePoints, mode);
+        
+        // Отображаем только основной маршрут без альтернатив
+        console.log(`Отображаем основной маршрут типа ${mode}`);
+        // Не запрашиваем и не отображаем альтернативные маршруты
       } else {
         // Иначе отправляем запрос на построение маршрута
         sendMessageToWebView({
@@ -231,6 +251,18 @@ const SimpleOSMMapView = forwardRef(({
           ]
         });
       }
+    },
+    
+    // Отображение нескольких маршрутов (основной + альтернативные)
+    showAlternativeRoutes: (routesArray, mode) => {
+      // Проверка на наличие маршрутов
+      if (!routesArray || routesArray.length === 0) {
+        console.warn('Нет маршрутов для отображения');
+        return;
+      }
+      
+      // Отправляем маршруты с указанием основного и альтернативных
+      sendMultipleRoutesToMap(webViewRef, routesArray, mode);
     },
     
     // Очистка маршрута

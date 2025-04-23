@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Alert } from 'react-native';
-import { fetchRouteDirections } from '../services/api';
+import { fetchRouteDirections, fetchAlternativeRoutes } from '../services/api';
 
 /**
  * Хук для управления маршрутами и навигацией
@@ -30,6 +30,16 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     TRANSIT: false
   });
   
+  // Состояние для альтернативных маршрутов
+  const [alternativeRoutes, setAlternativeRoutes] = useState({
+    DRIVING: [],
+    WALKING: [],
+    BICYCLING: [],
+    TRANSIT: []
+  });
+  const [showingAlternatives, setShowingAlternatives] = useState(false);
+  const [alternativesLoading, setAlternativesLoading] = useState(false);
+  
   // Добавляем отдельный стейт для разворачивания карты
   const [isMapExpanded, setIsMapExpanded] = useState(false);
   
@@ -47,6 +57,9 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     BICYCLING: false,
     TRANSIT: false
   });
+  
+  // Ссылка для отслеживания запросов альтернативных маршрутов
+  const alternativesRequestedRef = useRef(false);
   
   // Следим за изменением isMapExpanded
   useEffect(() => {
@@ -242,6 +255,9 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
       // Запускаем запрос остальных типов маршрутов с небольшой задержкой,
       // чтобы дать завершиться текущим операциям
       setTimeout(requestAllRouteTypes, 500);
+      
+      // Также запускаем запрос альтернативных маршрутов
+      requestAlternativeRoutes();
     }
   };
 
@@ -710,6 +726,91 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     };
   }, []);
 
+  // Функция для запроса альтернативных маршрутов
+  const requestAlternativeRoutes = () => {
+    // Проверяем, что альтернативные маршруты еще не запрашивались
+    if (alternativesRequestedRef.current) {
+      console.log('Альтернативные маршруты уже были запрошены ранее, пропускаем');
+      return;
+    }
+    
+    // Устанавливаем флаг, что запросили альтернативные маршруты
+    alternativesRequestedRef.current = true;
+    
+    // Проверяем глобальный флаг блокировки API
+    if (window.mapEaseApiBlocked) {
+      console.log('API заблокирован, пропускаем запрос альтернативных маршрутов');
+      return;
+    }
+    
+    // Получаем параметры маршрута
+    const origin = isReverseRoute ? selectedLocation : {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    };
+    
+    const destination = isReverseRoute ? {
+      latitude: location.coords.latitude,
+      longitude: location.coords.longitude,
+    } : selectedLocation;
+    
+    // Проверяем, что координаты валидны
+    if (!origin || !destination || !origin.latitude || !destination.latitude) {
+      console.log('Невозможно запросить альтернативные маршруты: невалидные координаты');
+      return;
+    }
+    
+    // Устанавливаем статус загрузки
+    setAlternativesLoading(true);
+    
+    // Запрашиваем альтернативные маршруты для текущего типа транспорта
+    console.log(`Запрос альтернативных маршрутов для режима ${routeMode}`);
+    
+    fetchAlternativeRoutes(origin, destination, routeMode)
+      .then(routes => {
+        // Проверяем, что компонент все еще смонтирован
+        if (!mounted.current) return;
+        
+        if (routes && routes.length > 0) {
+          console.log(`Получено ${routes.length} альтернативных маршрутов для ${routeMode}`);
+          
+          // Сохраняем альтернативные маршруты
+          setAlternativeRoutes(prev => ({ 
+            ...prev, 
+            [routeMode]: routes 
+          }));
+          
+          // Отображаем альтернативные маршруты на карте
+          if (mapRef?.current && routes.length > 0) {
+            showAlternativeRoutesOnMap(routes, routeMode);
+          }
+        } else {
+          console.log(`Не удалось получить альтернативные маршруты для ${routeMode}`);
+        }
+      })
+      .catch(error => {
+        console.error(`Ошибка при запросе альтернативных маршрутов: ${error}`);
+      })
+      .finally(() => {
+        if (mounted.current) {
+          setAlternativesLoading(false);
+        }
+      });
+  };
+  
+  // Функция отображения альтернативных маршрутов на карте
+  const showAlternativeRoutesOnMap = (routes, mode) => {
+    if (!mapRef?.current || !routes || routes.length === 0) return;
+    
+    // Устанавливаем флаг, что показываем альтернативные маршруты
+    setShowingAlternatives(true);
+    
+    // Используем новую функцию компонента карты для отображения альтернативных маршрутов
+    mapRef.current.showAlternativeRoutes(routes, mode);
+    
+    console.log(`Альтернативные маршруты отправлены на карту`);
+  };
+
   return {
     // Состояния
     isRouting,
@@ -733,7 +834,12 @@ export const useRouting = ({ location, selectedLocation, selectedPlaceInfo, mapR
     
     // Вспомогательные методы для UI
     getRouteDataForMap,
-    getRouteEndpoints
+    getRouteEndpoints,
+    requestAlternativeRoutes,
+    showAlternativeRoutesOnMap,
+    alternativeRoutes: alternativeRoutes[routeMode] || [],
+    showingAlternatives,
+    alternativesLoading
   };
 };
 

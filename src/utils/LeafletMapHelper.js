@@ -3,6 +3,7 @@
  */
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
+import { originMarkerSVG, destinationMarkerSVG, routeStyles } from './CustomMarkers';
 
 
 // Кешированное содержимое HTML и JS
